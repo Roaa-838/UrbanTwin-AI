@@ -10,13 +10,13 @@ Can satellite-derived land-cover context and simulated optimization of urban tra
 
 1. Acquire and spatially align a small Cairo area-of-interest from Sentinel-2 2021 and ESA WorldCover 2021.
 2. Calculate NDVI/NDBI, raster class proportions, and optionally contemporary OSM road density.
-3. Compare Random Forest with histogram gradient boosting on WorldCover pseudo-label agreement under a spatial-blocked holdout and band-index ablation.
-4. Compare a fixed-time controller with GA and PSO signal timing on an *abstract* synthetic intersection under low/medium/high simulated demand and held-out seeds.
+3. Compare Random Forest with histogram gradient boosting on WorldCover pseudo-label agreement under repeated grouped spatial evaluation and band-index ablation, without using test labels to select eligible classes.
+4. Compare a fixed-time controller with GA, PSO, and equal-budget random-search signal timing on an *abstract* synthetic intersection under low/medium/high simulated demand and paired held-out seeds.
 5. Document accuracy, reliability, uncertainty, failure modes, and resource constraints separately for both subsystems.
 
 ## Method summary
 
-See `configs/`, `src/urbantwin/`, the README, and the generated STAC provenance for exact parameters. The map and simulation are juxtaposed for a multidisciplinary urban-analytics study, not a calibrated traffic digital twin.
+See `configs/`, `src/urbantwin/`, the README, and the generated STAC provenance for exact parameters. Generated empirical reports require matching SHA-256 provenance for source data, configurations, and result tables. The map and simulation are juxtaposed for a multidisciplinary urban-analytics study, not a calibrated traffic digital twin.
 
 ## Results
 
@@ -27,7 +27,8 @@ See `configs/`, `src/urbantwin/`, the README, and the generated STAC provenance 
 - The ML study measures agreement with WorldCover reference labels, not independent ground truth.
 - The single AOI and spatially adjacent blocks limit external validity.
 - The abstract SUMO network has no validated relationship to actual Tahrir intersections, real traffic counts, or observed emissions.
-- Performance differences require quantitative evaluation across scenarios and seeds, and interpretation of queue/unfinished-vehicle metrics alongside completed-trip averages.
+- Performance differences require quantitative evaluation across scenarios and paired seeds, and interpretation of generated/inserted/completed/unfinished/pending counts alongside completed-trip averages.
+- Any SUMO CO₂ value is simulator-estimated under an explicit emissions-class assumption; it is not observed Cairo air pollution.
 
 ## Sources
 

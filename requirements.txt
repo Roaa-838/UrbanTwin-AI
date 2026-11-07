@@ -1,2 +1,2 @@
-# For a complete installation run: python -m pip install -e ".[all]"
--e .
+# Complete reproducible development/dashboard environment.
+-e .[all]

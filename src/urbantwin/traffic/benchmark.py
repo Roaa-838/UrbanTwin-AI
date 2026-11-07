@@ -1,160 +1,556 @@
-"""Run controlled SUMO comparisons using consistent scenarios and held-out seeds.
+"""Run paired, source-labeled SUMO controller comparisons.
 
-The built-in simulation is a toy cross-junction, *not* a calibrated model of Cairo.
-If a real SUMOFlow network is provided, users must supply compatible routes,
-and mapping for its traffic-light phase structure.
+The generated network is an abstract simulator fixture. Even an external user
+network is not treated as a calibrated Cairo model without separate evidence.
 """
 from __future__ import annotations
-import json
-import time
+
 import tempfile
+import time
 import xml.etree.ElementTree as ET
-from functools import lru_cache
 from pathlib import Path
+from typing import Any
+
 import numpy as np
 import pandas as pd
-from urbantwin.common import load_yaml,metadata,save_json
-from urbantwin.traffic.network import binary,create_network,create_routes
+
+from urbantwin.common import ROOT, load_yaml, metadata, save_json, sha256_file
 from urbantwin.traffic.baselines import install_tuned_program
-from urbantwin.traffic.optimize import genetic_algorithm,particle_swarm
+from urbantwin.traffic.network import (
+    DEFAULT_EMISSION_CLASS,
+    binary,
+    create_network,
+    create_routes,
+    validate_external_inputs,
+    validate_routes_for_network,
+)
+from urbantwin.traffic.optimize import genetic_algorithm, particle_swarm, random_search
 
 
 def _load_traffic_lib():
-    try:import traci
-    except ImportError as exc:raise RuntimeError("Install SUMO Python support: pip install -e '.[traffic]'") from exc
-    binary("sumo");binary("netconvert")
+    try:
+        import traci
+    except ImportError as exc:
+        raise RuntimeError(
+            "Install SUMO Python support with `python -m pip install -e \".[traffic]\"`"
+        ) from exc
+    binary("sumo")
     return traci
 
 
-def run_one(network: Path,routes: Path,plan: tuple[int,int],seed: int,
-            config: dict, tls_id: str | None=None) -> dict:
-    traci=_load_traffic_lib()
-    t0=time.monotonic()
-    with tempfile.TemporaryDirectory(prefix="urbantwin_sumo_") as tmp:
-        trip=Path(tmp)/"tripinfos.xml"
-        horizon=int(config["simulation_seconds"])+int(config["clearance_seconds"])
-        cmd=[binary("sumo"),"--net-file",str(network.resolve()),"--route-files",str(routes.resolve()),
-             "--tripinfo-output",str(trip),"--no-step-log","true","--duration-log.disable","true",
-             "--time-to-teleport","-1","--seed",str(seed)]
-        started=False
+def _mean(values: list[float]) -> float | None:
+    return float(np.mean(values)) if values else None
+
+
+def run_one(
+    network: Path,
+    routes: Path,
+    plan: tuple[int, int],
+    seed: int,
+    config: dict[str, Any],
+    tls_id: str | None = None,
+    route_metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Run one fixed-horizon simulation and expose all demand censoring counts."""
+    traci = _load_traffic_lib()
+    route_record = route_metadata or validate_routes_for_network(network, routes)
+    generated = int(route_record["generated_vehicles"])
+    start = time.monotonic()
+    with tempfile.TemporaryDirectory(prefix="urbantwin_sumo_") as temporary:
+        trip_path = Path(temporary) / "tripinfos.xml"
+        horizon = int(config["simulation_seconds"]) + int(config["clearance_seconds"])
+        command = [
+            binary("sumo"),
+            "--net-file",
+            str(network.resolve()),
+            "--route-files",
+            str(routes.resolve()),
+            "--tripinfo-output",
+            str(trip_path),
+            "--no-step-log",
+            "true",
+            "--duration-log.disable",
+            "true",
+            "--time-to-teleport",
+            "-1",
+            "--seed",
+            str(seed),
+        ]
+        started = False
+        inserted = 0
+        arrived = 0
+        minimum_expected = 0
+        queue_sum = 0.0
+        queue_observations = 0
+        co2_mg = 0.0
         try:
-            traci.start(cmd)
-            started=True
-            ids=list(traci.trafficlight.getIDList())
-            signal=tls_id or (ids[0] if ids else None)
-            if not signal:raise RuntimeError("No traffic light in SUMO network")
-            plan_metadata=install_tuned_program(traci,signal,plan)
-            queue_sum=0.;q_observations=0
-            co2_mg=0.;arrivals=0;departures=0
-            lanes=sorted(set(l for l in traci.trafficlight.getControlledLanes(signal)
-                             if l and not l.startswith(":")))
+            traci.start(command)
+            started = True
+            signal_ids = list(traci.trafficlight.getIDList())
+            signal = tls_id or (signal_ids[0] if signal_ids else None)
+            if not signal:
+                raise RuntimeError("No traffic light is available in the SUMO network")
+            if signal not in signal_ids:
+                raise ValueError(f"TLS {signal!r} is not available; found {signal_ids}")
+            program = install_tuned_program(traci, signal, plan)
+            lanes = sorted(
+                {
+                    lane
+                    for lane in traci.trafficlight.getControlledLanes(signal)
+                    if lane and not lane.startswith(":")
+                }
+            )
             if not lanes:
-                raise ValueError(f"TLS {signal} controls no physical approach lanes")
+                raise ValueError(f"TLS {signal!r} controls no physical approach lanes")
+            track_emissions = bool(config.get("track_emissions", False))
             for step in range(horizon):
                 traci.simulationStep()
-                if step>=int(config.get("warmup_seconds",0)):
-                    queue_sum+=sum(traci.lane.getLastStepHaltingNumber(lane) for lane in lanes)
-                    q_observations+=1
-                arrivals+=traci.simulation.getArrivedNumber()
-                departures+=traci.simulation.getDepartedNumber()
-                if bool(config.get("track_emissions",False)):
-                    co2_mg+=sum(traci.vehicle.getCO2Emission(veh) for veh in traci.vehicle.getIDList())
-            unfinished=max(0,departures-arrivals)
+                inserted += int(traci.simulation.getDepartedNumber())
+                arrived += int(traci.simulation.getArrivedNumber())
+                if step >= int(config.get("warmup_seconds", 0)):
+                    queue_sum += sum(
+                        traci.lane.getLastStepHaltingNumber(lane) for lane in lanes
+                    )
+                    queue_observations += 1
+                if track_emissions:
+                    delta_seconds = float(traci.simulation.getDeltaT())
+                    co2_mg += delta_seconds * sum(
+                        traci.vehicle.getCO2Emission(vehicle)
+                        for vehicle in traci.vehicle.getIDList()
+                    )
+            minimum_expected = int(traci.simulation.getMinExpectedNumber())
         finally:
-            if started:traci.close()
-        if not trip.exists():raise RuntimeError("SUMO did not write tripinfo output")
-        root=ET.parse(trip).getroot()
-        # Only completed trips belong to the following mean waiting/delay measures.
-        trips=[x for x in root.findall("tripinfo") if "timeLoss" in x.attrib]
-        waiting=[float(x.attrib["waitingTime"]) for x in trips if "waitingTime" in x.attrib]
-        delay=[float(x.attrib["timeLoss"]) for x in trips]
-        duration=[float(x.attrib["duration"]) for x in trips if "duration" in x.attrib]
-    result={
-        "plan_ns_ew_s":[int(plan[0]),int(plan[1])],
-        "completed_trips":len(trips),"departed_vehicles":departures,"unfinished_vehicles":unfinished,
-        "throughput_vehicles_per_hour":len(trips)*3600/horizon,
-        "mean_waiting_time_s_completed":float(np.mean(waiting)) if waiting else None,
-        "mean_time_loss_s_completed":float(np.mean(delay)) if delay else None,
-        "mean_trip_duration_s_completed":float(np.mean(duration)) if duration else None,
-        "mean_approach_queue_vehicles":queue_sum/q_observations if q_observations else None,
-        "simulated_co2_g":co2_mg/1000 if bool(config.get("track_emissions",False)) else None,
-        "wall_time_s":time.monotonic()-t0,"signal_program":plan_metadata,
-        "queue_note":"Mean halted vehicles on unique TLS-controlled approach lanes after warmup; not maximum queue length",
-        "censoring_note":"Time-loss/waiting means are for completed trips only; unfinished count reported separately",
+            if started:
+                traci.close()
+        if not trip_path.is_file():
+            raise RuntimeError("SUMO did not write tripinfo output")
+        root = ET.parse(trip_path).getroot()
+        trips = [trip for trip in root.findall("tripinfo") if "timeLoss" in trip.attrib]
+        waiting = [float(trip.attrib["waitingTime"]) for trip in trips if "waitingTime" in trip.attrib]
+        time_loss = [float(trip.attrib["timeLoss"]) for trip in trips]
+        duration = [float(trip.attrib["duration"]) for trip in trips if "duration" in trip.attrib]
+
+    completed = len(trips)
+    if completed != arrived:
+        raise RuntimeError(
+            f"SUMO arrival/tripinfo mismatch: arrived={arrived}, tripinfo={completed}"
+        )
+    if not (0 <= completed <= inserted <= generated):
+        raise RuntimeError(
+            "Invalid SUMO demand accounting: expected completed <= inserted <= generated, got "
+            f"{completed} <= {inserted} <= {generated}"
+        )
+    unfinished = inserted - completed
+    pending = generated - inserted
+    if minimum_expected != unfinished + pending:
+        raise RuntimeError(
+            "SUMO minimum-expected count does not match unfinished plus pending vehicles: "
+            f"{minimum_expected} != {unfinished} + {pending}"
+        )
+    track_emissions = bool(config.get("track_emissions", False))
+    co2_g = co2_mg / 1000 if track_emissions else None
+    return {
+        "plan_ns_ew_s": [int(plan[0]), int(plan[1])],
+        "generated_vehicles": generated,
+        "inserted_vehicles": inserted,
+        "completed_vehicles": completed,
+        "unfinished_vehicles": unfinished,
+        "pending_vehicles": pending,
+        "completion_fraction_generated": completed / generated,
+        "insertion_fraction_generated": inserted / generated,
+        "completed_throughput_vehicles_per_sim_hour": completed * 3600 / horizon,
+        "mean_waiting_time_s_completed": _mean(waiting),
+        "mean_time_loss_s_completed": _mean(time_loss),
+        "mean_trip_duration_s_completed": _mean(duration),
+        "mean_approach_queue_vehicles": (
+            queue_sum / queue_observations if queue_observations else None
+        ),
+        "simulated_co2_g_inserted_fleet": co2_g,
+        "simulated_co2_g_per_inserted_vehicle": (
+            co2_g / inserted if co2_g is not None and inserted else None
+        ),
+        "simulated_co2_label": "SUMO model estimate; simulator-only, not observed pollution",
+        "wall_time_s": time.monotonic() - start,
+        "signal_program": program,
+        "queue_note": (
+            "Mean halted vehicles on unique TLS-controlled approach lanes after warmup; "
+            "not a maximum queue-length measure"
+        ),
+        "censoring_note": (
+            "Waiting/time-loss/duration means use completed trips only. Generated, inserted, "
+            "completed, unfinished, and pending counts expose horizon censoring."
+        ),
     }
-    return result
 
 
-def objective_metrics(row: dict) -> float:
-    if not row["completed_trips"]:return 1e6
-    # Explicit arbitrary scalarization for tuning only; report independent metrics.
-    return float(row["mean_time_loss_s_completed"]+2*row["mean_approach_queue_vehicles"]+2*row["unfinished_vehicles"])
+def objective_metrics(row: dict[str, Any]) -> float:
+    """Arbitrary tuning scalar; scientific comparisons retain separate KPIs."""
+    if not row["completed_vehicles"] or row["mean_time_loss_s_completed"] is None:
+        return 1_000_000.0 + 2 * (row["unfinished_vehicles"] + row["pending_vehicles"])
+    return float(
+        row["mean_time_loss_s_completed"]
+        + 2 * row["mean_approach_queue_vehicles"]
+        + 2 * (row["unfinished_vehicles"] + row["pending_vehicles"])
+    )
 
 
-def run_benchmark(config_file: str | Path,out_dir: str | Path,network_file: str | None=None,
-                  routes_template: str | None=None, tls_id: str | None=None) -> pd.DataFrame:
-    cfg_all=load_yaml(config_file)
-    cfg=cfg_all["traffic"]
-    out=Path(out_dir);out.mkdir(parents=True,exist_ok=True)
-    network=Path(network_file).resolve() if network_file else create_network(out/"synthetic_network")
-    if not network.exists():raise FileNotFoundError(network)
-    scenarios=cfg["vehicle_rates_per_approach_per_hour"]
-    train_seeds=list(cfg["optimizer_training_seeds"])
-    test_seeds=list(cfg["evaluation_seeds"])
-    if set(train_seeds)&set(test_seeds):raise ValueError("Optimizer training seeds must not overlap evaluation seeds")
-    all_seeds=set(train_seeds+test_seeds)
-    route_paths={}
-    for scenario,rate in scenarios.items():
-        for seed in all_seeds:
-            if routes_template:
-                file=Path(routes_template.format(scenario=scenario,seed=seed)).resolve()
-                if not file.exists():raise FileNotFoundError(file)
-            else:
-                file=create_routes(out/"synthetic_network"/f"routes_{scenario}_{seed}.rou.xml",
-                                   float(rate),int(cfg["simulation_seconds"]),int(seed))
-            route_paths[(scenario,seed)]=file
-    if network_file and not routes_template:
-        raise ValueError("For external SUMO network, also supply compatible routes_template")
-    bounds=tuple(int(x) for x in cfg["green_seconds_bounds"])
-    base=tuple(int(x) for x in cfg["baseline_green_seconds"])
-    comparison=[];optimization={}
-    for scenario,rate in scenarios.items():
-        @lru_cache(maxsize=256)
-        def score(plan):
-            measures=[run_one(network,route_paths[(scenario,s)],plan,s,cfg,tls_id) for s in train_seeds]
-            return float(np.mean([objective_metrics(x) for x in measures]))
-        t0=time.monotonic()
-        ga=genetic_algorithm(score,bounds,population=int(cfg["ga_population"]),generations=int(cfg["ga_generations"]),seed=42)
-        ga_seconds=time.monotonic()-t0
-        t0=time.monotonic()
-        pso=particle_swarm(score,bounds,particles=int(cfg["pso_particles"]),iterations=int(cfg["pso_iterations"]),seed=43)
-        pso_seconds=time.monotonic()-t0
-        optimization[scenario]={"GA":{**ga,"optimization_wall_time_s":ga_seconds},
-                                "PSO":{**pso,"optimization_wall_time_s":pso_seconds},
-                                "training_seeds":train_seeds,"evaluation_seeds":test_seeds}
-        for method,plan,optimizer_seconds in [("fixed",base,0.),("GA",tuple(ga["plan"]),ga_seconds),("PSO",tuple(pso["plan"]),pso_seconds)]:
-            for s in test_seeds:
-                r=run_one(network,route_paths[(scenario,s)],plan,int(s),cfg,tls_id)
-                comparison.append({"scenario":scenario,"demand_vph_per_approach":rate,
-                    "method":method,"seed":s,"train_seed_overlap":False,
-                    "green_ns_s":plan[0],"green_ew_s":plan[1],
-                    "data_kind":"simulation_abstract" if not network_file else "simulation_external_user_network",
-                    "optimization_wall_time_s":optimizer_seconds,
-                    **{k:v for k,v in r.items() if not isinstance(v,(list,dict))}})
-    frame=pd.DataFrame(comparison)
-    frame.to_csv(out/"traffic_metrics.csv",index=False)
-    summary=(frame.groupby(["scenario","method"],sort=True)
-             .agg(mean_waiting_s=("mean_waiting_time_s_completed","mean"),
-                  std_waiting_s=("mean_waiting_time_s_completed","std"),
-                  mean_time_loss_s=("mean_time_loss_s_completed","mean"),
-                  mean_queue_vehicles=("mean_approach_queue_vehicles","mean"),
-                  mean_throughput_vph=("throughput_vehicles_per_hour","mean"),
-                  mean_unfinished=("unfinished_vehicles","mean"),
-                  runs=("seed","count")).reset_index())
-    summary.to_csv(out/"traffic_summary.csv",index=False)
-    save_json(metadata("simulation_abstract" if not network_file else "simulation_external_user_network",
-                       cfg_all,network=str(network),
-                       warning="Synthetic intersection is not a geometrically or demand-calibrated Cairo traffic model.",
-                       objective="mean time loss completed + 2*mean queue + 2*unfinished count",
-                       optimization=optimization),out/"traffic_provenance.json")
+def _validate_config(config: dict[str, Any]) -> None:
+    if "yellow_seconds" in config:
+        raise ValueError(
+            "traffic.yellow_seconds is not applied. Remove it: non-green durations are read "
+            "from and preserved from each SUMO signal program."
+        )
+    train = [int(value) for value in config["optimizer_training_seeds"]]
+    evaluation = [int(value) for value in config["evaluation_seeds"]]
+    if not train or not evaluation:
+        raise ValueError("Traffic training and evaluation seed lists must both be non-empty")
+    if len(train) != len(set(train)) or len(evaluation) != len(set(evaluation)):
+        raise ValueError("Traffic seed lists must not contain duplicates")
+    if set(train) & set(evaluation):
+        raise ValueError("Optimizer training seeds must not overlap evaluation seeds")
+    ga_budget = int(config["ga_population"]) * int(config["ga_generations"])
+    pso_budget = int(config["pso_particles"]) * int(config["pso_iterations"])
+    if ga_budget != pso_budget:
+        raise ValueError(
+            "GA and PSO must have equal objective-evaluation budgets for comparison: "
+            f"{ga_budget} != {pso_budget}"
+        )
+    if int(config["simulation_seconds"]) <= 0 or int(config["clearance_seconds"]) < 0:
+        raise ValueError("simulation_seconds must be positive and clearance_seconds non-negative")
+    horizon = int(config["simulation_seconds"]) + int(config["clearance_seconds"])
+    warmup = int(config.get("warmup_seconds", 0))
+    if warmup < 0 or warmup >= horizon:
+        raise ValueError("warmup_seconds must be non-negative and below the simulation horizon")
+    bounds = [int(value) for value in config["green_seconds_bounds"]]
+    baseline = [int(value) for value in config["baseline_green_seconds"]]
+    if len(bounds) != 2 or not (0 < bounds[0] < bounds[1]):
+        raise ValueError("green_seconds_bounds must be two increasing positive integers")
+    if len(baseline) != 2 or any(not bounds[0] <= value <= bounds[1] for value in baseline):
+        raise ValueError("Each baseline green duration must lie within green_seconds_bounds")
+
+
+def _config_reference(path: Path) -> str:
+    resolved = path.resolve()
+    try:
+        return resolved.relative_to(ROOT.resolve()).as_posix()
+    except ValueError:
+        return str(resolved)
+
+
+def _paired_outputs(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    frame = frame.copy()
+    keys = ["scenario", "seed", "data_kind"]
+    metrics = [
+        "mean_time_loss_s_completed",
+        "mean_waiting_time_s_completed",
+        "mean_approach_queue_vehicles",
+        "completed_throughput_vehicles_per_sim_hour",
+        "completed_vehicles",
+        "unfinished_vehicles",
+        "pending_vehicles",
+        "completion_fraction_generated",
+        "simulated_co2_g_inserted_fleet",
+    ]
+    for metric in metrics:
+        frame[metric] = pd.to_numeric(frame[metric], errors="coerce")
+    fixed = frame.loc[frame["method"] == "fixed"].copy()
+    methods = frame.loc[frame["method"] != "fixed"].copy()
+    baseline = fixed[keys + metrics].rename(
+        columns={metric: f"{metric}__fixed" for metric in metrics}
+    )
+    paired = methods.merge(baseline, on=keys, how="left", validate="many_to_one")
+    for metric in metrics:
+        paired[f"delta_{metric}_method_minus_fixed"] = paired[metric] - paired[
+            f"{metric}__fixed"
+        ]
+    keep = keys + ["method"] + [
+        column for column in paired.columns if column.startswith("delta_")
+    ]
+    deltas = paired[keep].copy()
+    delta_columns = [column for column in deltas if column.startswith("delta_")]
+    aggregations: dict[str, tuple[str, str]] = {"runs": ("seed", "count")}
+    for column in delta_columns:
+        aggregations[f"mean_{column}"] = (column, "mean")
+        aggregations[f"std_{column}"] = (column, "std")
+    summary = (
+        deltas.groupby(["scenario", "method", "data_kind"], sort=True)
+        .agg(**aggregations)
+        .reset_index()
+    )
+    return deltas, summary
+
+
+def run_benchmark(
+    config_file: str | Path,
+    out_dir: str | Path,
+    network_file: str | None = None,
+    routes_template: str | None = None,
+    tls_id: str | None = None,
+) -> pd.DataFrame:
+    config_path = Path(config_file)
+    config_all = load_yaml(config_path)
+    config = config_all.get("traffic")
+    if not isinstance(config, dict):
+        raise TypeError("Configuration must contain a traffic mapping")
+    _validate_config(config)
+    scenarios = config.get("vehicle_rates_per_approach_per_hour")
+    if not isinstance(scenarios, dict) or not scenarios:
+        raise ValueError("vehicle_rates_per_approach_per_hour must be a non-empty mapping")
+    train_seeds = [int(value) for value in config["optimizer_training_seeds"]]
+    evaluation_seeds = [int(value) for value in config["evaluation_seeds"]]
+    all_seeds = sorted(set(train_seeds + evaluation_seeds))
+    track_emissions = bool(config.get("track_emissions", False))
+    external = network_file is not None or routes_template is not None
+    if (network_file is None) != (routes_template is None):
+        raise ValueError("External SUMO runs require both --network and --routes-template")
+    if not external and tls_id is not None:
+        raise ValueError("--tls-id is only valid with an external network")
+
+    route_paths: dict[tuple[str, int], Path]
+    route_records: dict[tuple[str, int], dict[str, Any]]
+    if external:
+        network, route_paths, route_records = validate_external_inputs(
+            network_file,
+            routes_template,
+            scenarios,
+            all_seeds,
+            tls_id=tls_id,
+            require_explicit_emissions=track_emissions,
+        )
+    output = Path(out_dir)
+    output.mkdir(parents=True, exist_ok=True)
+    if not external:
+        network = create_network(output / "synthetic_network")
+        route_paths = {}
+        route_records = {}
+        emission_class = str(config.get("emission_class", DEFAULT_EMISSION_CLASS))
+        for scenario, rate in scenarios.items():
+            for seed in all_seeds:
+                key = (str(scenario), seed)
+                route_path = create_routes(
+                    output / "synthetic_network" / f"routes_{scenario}_{seed}.rou.xml",
+                    float(rate),
+                    int(config["simulation_seconds"]),
+                    seed,
+                    emission_class,
+                )
+                route_paths[key] = route_path
+                route_records[key] = validate_routes_for_network(
+                    network,
+                    route_path,
+                    require_explicit_emissions=track_emissions,
+                )
+
+    bounds = tuple(int(value) for value in config["green_seconds_bounds"])
+    baseline = tuple(int(value) for value in config["baseline_green_seconds"])
+    if len(bounds) != 2 or len(baseline) != 2:
+        raise ValueError("green_seconds_bounds and baseline_green_seconds need exactly two values")
+    evaluation_budget = int(config["ga_population"]) * int(config["ga_generations"])
+    base_optimizer_seed = int(config_all.get("random_seed", 42))
+    comparison: list[dict[str, Any]] = []
+    optimization: dict[str, Any] = {}
+    evaluation_programs: dict[str, Any] = {}
+    data_kind = "simulation_external_user_network" if external else "simulation_abstract"
+
+    for scenario, rate in scenarios.items():
+        scenario_key = str(scenario)
+
+        def score(plan, scenario_key=scenario_key):
+            measures = [
+                run_one(
+                    network,
+                    route_paths[(scenario_key, seed)],
+                    plan,
+                    seed,
+                    config,
+                    tls_id,
+                    route_records[(scenario_key, seed)],
+                )
+                for seed in train_seeds
+            ]
+            return float(np.mean([objective_metrics(measure) for measure in measures]))
+
+        optimized: dict[str, tuple[dict[str, Any], float]] = {}
+        calls = [
+            (
+                "GA",
+                lambda: genetic_algorithm(
+                    score,
+                    bounds,
+                    population=int(config["ga_population"]),
+                    generations=int(config["ga_generations"]),
+                    seed=base_optimizer_seed,
+                ),
+            ),
+            (
+                "PSO",
+                lambda: particle_swarm(
+                    score,
+                    bounds,
+                    particles=int(config["pso_particles"]),
+                    iterations=int(config["pso_iterations"]),
+                    seed=base_optimizer_seed + 1,
+                ),
+            ),
+            (
+                "random_search",
+                lambda: random_search(
+                    score, bounds, evaluations=evaluation_budget, seed=base_optimizer_seed + 2
+                ),
+            ),
+        ]
+        for method, call in calls:
+            started = time.monotonic()
+            result = call()
+            elapsed = time.monotonic() - started
+            if int(result["objective_evaluations"]) != evaluation_budget:
+                raise RuntimeError(f"{method} did not use the declared equal evaluation budget")
+            optimized[method] = (result, elapsed)
+        optimization[scenario_key] = {
+            method: {**result, "optimization_wall_time_s": elapsed}
+            for method, (result, elapsed) in optimized.items()
+        }
+        optimization[scenario_key].update(
+            {
+                "objective_evaluation_budget_per_method": evaluation_budget,
+                "training_seed_count_per_objective": len(train_seeds),
+                "training_sumo_runs_per_method": evaluation_budget * len(train_seeds),
+                "training_seeds": train_seeds,
+                "evaluation_seeds": evaluation_seeds,
+            }
+        )
+        plans = [("fixed", baseline, 0.0)] + [
+            (method, tuple(result["plan"]), elapsed)
+            for method, (result, elapsed) in optimized.items()
+        ]
+        for method, plan, optimizer_seconds in plans:
+            for seed in evaluation_seeds:
+                result = run_one(
+                    network,
+                    route_paths[(scenario_key, seed)],
+                    plan,
+                    seed,
+                    config,
+                    tls_id,
+                    route_records[(scenario_key, seed)],
+                )
+                evaluation_programs[f"{scenario_key}__{method}__{seed}"] = result[
+                    "signal_program"
+                ]
+                comparison.append(
+                    {
+                        "scenario": scenario_key,
+                        "demand_vph_per_approach": float(rate),
+                        "method": method,
+                        "seed": seed,
+                        "train_seed_overlap": False,
+                        "green_ns_s": int(plan[0]),
+                        "green_ew_s": int(plan[1]),
+                        "data_kind": data_kind,
+                        "optimization_wall_time_s": optimizer_seconds,
+                        **{
+                            key: value
+                            for key, value in result.items()
+                            if not isinstance(value, (list, dict))
+                        },
+                    }
+                )
+
+    frame = pd.DataFrame(comparison)
+    metrics_path = output / "traffic_metrics.csv"
+    frame.to_csv(metrics_path, index=False)
+    summary = (
+        frame.groupby(["scenario", "method", "data_kind"], sort=True)
+        .agg(
+            mean_waiting_time_s_completed=("mean_waiting_time_s_completed", "mean"),
+            std_waiting_time_s_completed=("mean_waiting_time_s_completed", "std"),
+            mean_time_loss_s_completed=("mean_time_loss_s_completed", "mean"),
+            std_time_loss_s_completed=("mean_time_loss_s_completed", "std"),
+            mean_approach_queue_vehicles=("mean_approach_queue_vehicles", "mean"),
+            mean_completed_throughput_vph=(
+                "completed_throughput_vehicles_per_sim_hour",
+                "mean",
+            ),
+            mean_generated_vehicles=("generated_vehicles", "mean"),
+            mean_inserted_vehicles=("inserted_vehicles", "mean"),
+            mean_completed_vehicles=("completed_vehicles", "mean"),
+            mean_unfinished_vehicles=("unfinished_vehicles", "mean"),
+            mean_pending_vehicles=("pending_vehicles", "mean"),
+            mean_completion_fraction_generated=("completion_fraction_generated", "mean"),
+            mean_simulated_co2_g_inserted_fleet=(
+                "simulated_co2_g_inserted_fleet",
+                "mean",
+            ),
+            runs=("seed", "count"),
+        )
+        .reset_index()
+    )
+    # Backward-compatible plot aliases remain explicitly completed-trip/horizon metrics.
+    summary["mean_time_loss_s"] = summary["mean_time_loss_s_completed"]
+    summary["mean_unfinished"] = summary["mean_unfinished_vehicles"]
+    summary_path = output / "traffic_summary.csv"
+    summary.to_csv(summary_path, index=False)
+    paired_deltas, paired_summary = _paired_outputs(frame)
+    paired_deltas_path = output / "traffic_paired_deltas.csv"
+    paired_summary_path = output / "traffic_paired_summary.csv"
+    paired_deltas.to_csv(paired_deltas_path, index=False)
+    paired_summary.to_csv(paired_summary_path, index=False)
+
+    route_artifacts = {
+        f"{scenario}__{seed}": {
+            "path": _config_reference(path),
+            "sha256": sha256_file(path),
+        }
+        for (scenario, seed), path in sorted(route_paths.items())
+    }
+    emission_classes = sorted(
+        {
+            emission
+            for record in route_records.values()
+            for emission in record.get("emission_classes", [])
+        }
+    )
+    record = metadata(
+        data_kind,
+        config_all,
+        schema_version="urbantwin.traffic-benchmark/v2",
+        config_path=_config_reference(config_path),
+        config_sha256=sha256_file(config_path),
+        network=_config_reference(network),
+        network_sha256=sha256_file(network),
+        network_source="external_user_network" if external else "generated_abstract_junction",
+        route_artifacts_by_scenario_seed=route_artifacts,
+        warning=(
+            "Simulator-only experiment. The network and demand are not established as a "
+            "calibrated Cairo digital twin."
+        ),
+        objective=(
+            "mean completed-trip time loss + 2*mean approach queue + "
+            "2*(unfinished inserted + pending insertion); tuning only"
+        ),
+        equal_objective_evaluation_budget=evaluation_budget,
+        optimization=optimization,
+        evaluation_signal_programs=evaluation_programs,
+        track_emissions=track_emissions,
+        emission_class_assumptions=emission_classes,
+        co2_accounting=(
+            "At each simulation step, sum TraCI getCO2Emission (mg/s) for active vehicles "
+            "and multiply by the reported simulation step length; includes inserted vehicles "
+            "while active and excludes demand still pending insertion."
+        ),
+        co2_interpretation=(
+            "SUMO/HBEFA simulator estimate under the recorded emission classes; "
+            "not measured Cairo air pollution"
+            if track_emissions
+            else "CO2 tracking disabled; no emission result was evaluated"
+        ),
+        metrics_sha256=sha256_file(metrics_path),
+        summary_sha256=sha256_file(summary_path),
+        paired_deltas_sha256=sha256_file(paired_deltas_path),
+        paired_summary_sha256=sha256_file(paired_summary_path),
+    )
+    save_json(record, output / "traffic_provenance.json")
     return frame
+
+
+__all__ = ["objective_metrics", "run_benchmark", "run_one"]

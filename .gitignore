@@ -20,7 +20,9 @@ results/*
 results/figures/*
 !results/figures/.gitkeep
 reports/generated_*.pdf
+reports/generated_*.provenance.json
 reports/methodology_draft.pdf
+reports/methodology_draft.provenance.json
 *.log
 .DS_Store
 Thumbs.db
