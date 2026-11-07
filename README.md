@@ -11,8 +11,8 @@
 A modular research prototype integrating:
 
 - **Real geospatial context** around Tahrir Square, Cairo: Sentinel-2 L2A, ESA WorldCover 2021, OpenStreetMap road network, georeferenced maps, NDVI, NDBI.
-- **ML evaluation:** Random Forest vs Histogram Gradient Boosting, spectral feature ablation, geographically blocked held-out test patches, macro F1 and confusion matrix **against WorldCover pseudo-labels**.
-- **Traffic experiments:** SUMO fixed-time control versus GA and PSO for two main traffic-signal green phases. Same traffic routes and held-out random seeds across controllers.
+- **ML evaluation:** Random Forest vs Histogram Gradient Boosting, spectral feature ablation, repeated grouped spatial splits, per-class confusion matrices, and explicit unsupported-class reporting **against WorldCover pseudo-labels**.
+- **Traffic experiments:** SUMO fixed-time control versus GA, PSO, and equal-budget random search for two main traffic-signal green phases. The same routes and paired held-out seeds are used across controllers.
 - **Visualization and research outputs:** Streamlit dashboard, plots, machine-readable provenance, research-report PDF generator.
 
 **IMPORTANT:** The default SUMO intersection is **abstract and synthetic**, **not a calibrated simulation of Tahrir Square**, and its traffic demand is generated independently of satellite imagery. The geospatial and mobility findings are adjacent research components, not a validated causal relationship. A SUMOFlow external network adapter is included only for compatible two-green-phase signal programs and matching prebuilt vehicle-route files.
@@ -24,13 +24,13 @@ A modular research prototype integrating:
 | Geospatial data ingestion | Implemented; requires internet to run | `urbantwin eo-fetch` |
 | QGIS-compatible projected raster metrics | Implemented; real-data execution pending | `urbantwin geo-train` |
 | OpenStreetMap road data | Implemented; network access required | `urbantwin roads` |
-| Spatial-blocked WorldCover reference classification | Implemented and offline-tested on **synthetic fixtures** | Run on real Sentinel/WorldCover rasters |
+| Repeated grouped WorldCover reference classification | Implemented and offline-tested on **synthetic fixtures** | Run on real Sentinel/WorldCover rasters |
 | SUMO network and demand generator | Implemented; installed SUMO executable required | `urbantwin traffic-run --quick` |
-| GA and PSO signal timing optimization | Implemented; tested on deterministic mathematical objective | Test actual simulation and then run full budget |
+| GA, PSO and equal-budget random-search optimization | Implemented; offline objective tests are not SUMO evidence | Test actual simulation and then run full budget |
 | Dashboard and report generator | Implemented; display outputs only if present | See commands below |
 | Validated Cairo real-world traffic improvement | **NOT CLAIMED** | Needs calibrated roads, demand and traffic counts |
 
-**There are no pre-filled experimental performance results** in the repository. Synthetic demo metrics are deliberately excluded from scholarship results. Do not cite the deterministic synthetic-demo scores as scientific findings. Real-time online data acquisition and SUMO execution could not be verified in the authoring environment; verify these steps locally before presenting them as completed.
+**There are no pre-filled experimental performance results** in the repository. Synthetic demo metrics are deliberately excluded from scholarship results. Do not cite the deterministic synthetic-demo scores as scientific findings. Live EO/OSM acquisition and a full-budget SUMO benchmark have not been executed for this release; rerun and review them locally before presenting any result. A low-budget quick smoke confirms software execution only, not performance.
 
 ## Architecture
 
@@ -69,9 +69,12 @@ py -3.12 -m venv .venv
 python -m pip install --upgrade pip
 python -m pip install -e ".[all]"
 python -m pytest -q
+python scripts/verify_release.py
 ```
 
 If PowerShell blocks activation, use `.\.venv\Scripts\python.exe` in place of `python`, or run `Set-ExecutionPolicy -Scope Process Bypass` for your current session only. The package will install geospatial wheels, Streamlit, PySTAC, TraCI and testing tools; internet access is necessary for first installation.
+
+If `python` resolves to a different interpreter after activation, check `python -c "import sys; print(sys.executable)"`. Prefer a current 64-bit CPython release with binary wheels; building Rasterio or GeoPandas from source requires a separate native GDAL toolchain. A missing `sumo.exe` or `netconvert.exe` is not fixed by installing the Python `traci` package—install Eclipse SUMO and verify both executables explicitly. Network/STAC/Overpass failures stop real-mode commands; they never trigger a synthetic fallback.
 
 **2. Run the OFFLINE unit tests, followed by a synthetic-data pipeline sanity check.**
 
@@ -109,7 +112,7 @@ sumo --version
 netconvert --version
 ```
 
-**6. Run a very small real SUMO smoke test, then the full configured simulation.**
+**6. Run a very small SUMO executable smoke test, then the full configured simulation.**
 
 ```powershell
 urbantwin traffic-run --quick
@@ -126,13 +129,13 @@ streamlit run src/urbantwin/visualization/dashboard.py
 urbantwin report
 ```
 
-The PDF is saved as `reports/generated_research_report.pdf` and includes only the result CSVs currently available. If you want an **explicitly labeled methodology-only PDF** before running experiments:
+The PDF is saved as `reports/generated_research_report.pdf`. It accepts results only when metrics, detailed records, source data, configuration, timestamps, and recorded SHA-256 hashes agree. A matching `generated_research_report.provenance.json` records the exact inputs. If you want an **explicitly labeled methodology-only PDF** before running experiments:
 
 ```powershell
 urbantwin report --draft
 ```
 
-The repository includes an initial `reports/research_report.pdf` that clearly identifies itself as methodology-only. Replace it with a measured and verified report before citing any numeric research findings.
+Draft mode never consumes experiment files, even if they are present. The repository includes an initial `reports/research_report.pdf` that identifies itself as methodology-only. Replace it with a measured and verified report before citing any numeric research findings.
 
 ## Exact repository file layout
 
@@ -191,19 +194,19 @@ Indices use `(NIR − Red)/(NIR + Red)` for NDVI and `(SWIR − NIR)/(SWIR + NIR
 
 ### WorldCover reference-label study, not ground-truth survey
 
-The 2021 ESA WorldCover raster is the label source and therefore the evaluation target. Classifier macro-F1 measures **agreement with WorldCover**, not independent physical land-cover accuracy. Models are evaluated with nonoverlapping spatial blocks rather than independent random pixels. Because adjacent blocks are autocorrelated, the numbers should not be interpreted as cross-region generalization. Only classes with adequate training and held-out support are evaluated; support and confusion matrices are saved.
+The 2021 ESA WorldCover raster is the label source and therefore the evaluation target. Classifier macro-F1 measures **agreement with WorldCover**, not independent physical land-cover accuracy. Models are evaluated across repeated group-disjoint spatial splits rather than independent random pixels. Eligibility is decided from training support only; test labels are never consulted to cherry-pick classes. The output records every WorldCover class excluded for insufficient training support, while test-unsupported eligible classes remain in the declared label set and score as zero when appropriate. Per-split support and confusion matrices are retained. Because nearby blocks remain spatially correlated, the numbers should not be interpreted as cross-region generalization.
 
 ### Traffic baseline and fairness
 
-The generated network is a one-junction, four-approach, one-lane-per-direction **synthetic** SUMO network. The default four route directions go straight across the intersection. GA and PSO each tune the durations (in seconds) of **two detected main green phases**, keeping SUMO yellow and other phases intact. A controller with a more complex traffic light requires a dedicated, verified phase adapter; unsupported programs raise an error.
+The generated network is a one-junction, four-approach, one-lane-per-direction **synthetic** SUMO network. The default four route directions go straight across the intersection. GA, PSO and equal-budget random search each tune the durations (in seconds) of **two detected main green phases**, keeping the network's existing yellow and other phases intact. A controller with a more complex traffic light requires a dedicated, verified phase adapter; unsupported programs raise an error.
 
-Demand is independently generated for low/medium/high scenarios with Poisson sampled counts and randomized departure times. A **fixed random seed** fixes vehicle demand so the baseline, GA and PSO see the same scenarios. Optimizers train on separate seeds from the final comparison. The objective used for *tuning*, not scientific ranking, is:
+Demand is independently generated for low/medium/high scenarios with Poisson sampled counts and randomized departure times. A **fixed random seed** fixes vehicle demand so every controller sees the same scenarios. Optimizers train on separate seeds from the final comparison, use comparable objective-call budgets, and are summarized by paired evaluation seed. The objective used for *tuning*, not scientific ranking, is:
 
 ```
 mean completed-trip time loss (s) + 2 × mean approach queue (vehicles) + 2 × unfinished vehicles
 ```
 
-This is a deliberately simple, scale-dependent heuristic; the report compares individual KPIs rather than claiming the scalar objective is universally meaningful. Report `timeLoss`, waiting time, mean controlled-approach halting count, throughput, unfinished vehicles and optimization runtime. Means from SUMO `tripinfo` include **completed trips only**, while unfinished vehicles are reported separately to expose censoring. If `track_emissions: true` is set, CO₂ is the integrated SUMO model estimate (not measured air pollution). The default disables emissions to reduce runtime.
+This is a deliberately simple, scale-dependent heuristic; the report compares individual KPIs rather than claiming the scalar objective is universally meaningful. Outputs distinguish **generated**, **inserted**, **completed**, **unfinished**, and **pending-to-insert** vehicles. Completed-trip `timeLoss`, waiting time and throughput are labeled so they are not confused with demand-level completion or insertion fractions. The default `track_emissions: true` integrates SUMO's per-vehicle CO₂ rate over each simulation step using the explicit generated-car class `HBEFA3/PC_G_EU4`; external routes must declare every used emissions class. This is a simulator-only model estimate, not measured Cairo air pollution, and is reported alongside completion counts to expose censoring.
 
 ### Integrating your existing SUMOFlow network (advanced)
 
@@ -215,7 +218,7 @@ urbantwin traffic-run --network "D:\SUMOFlow\network.net.xml" `
   --tls-id "YOUR_TLS_ID"
 ```
 
-It will intentionally reject signal programs with anything other than exactly two main green phases. A custom adapter is needed for more complex intersections. Calibrate against observed traffic counts before making any real-world interpretation.
+Before route generation or simulation, the command checks that the external network exists, is a SUMO network, contains the requested traffic-light ID, and is paired with an explicit route template. It intentionally rejects signal programs with anything other than exactly two main green phases. A custom adapter is needed for more complex intersections. Calibrate against observed traffic counts before making any real-world interpretation.
 
 ## Application-specific portfolio framing
 

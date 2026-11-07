@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -9,7 +9,8 @@ description = "Reproducible Earth observation and SUMO experiments for urban mob
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{name = "Roaa Raafat"}]
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
   "numpy>=1.26,<3", "pandas>=2.0,<3", "scipy>=1.11,<2", "scikit-learn>=1.4,<2",
   "PyYAML>=6,<7", "rasterio>=1.3,<2", "pyproj>=3.5,<4", "matplotlib>=3.7,<4",
@@ -20,9 +21,9 @@ dependencies = [
 eo = ["pystac-client>=0.8,<1", "planetary-computer>=1.0,<2", "requests>=2.31,<3"]
 roads = ["osmnx>=2.0,<3", "geopandas>=1.0,<2"]
 traffic = ["traci>=1.19,<3", "sumolib>=1.19,<3"]
-app = ["streamlit>=1.35,<2"]
-dev = ["pytest>=8,<10", "ruff>=0.6,<1"]
-all = ["pystac-client>=0.8,<1", "planetary-computer>=1.0,<2", "requests>=2.31,<3", "osmnx>=2.0,<3", "geopandas>=1.0,<2", "traci>=1.19,<3", "sumolib>=1.19,<3", "streamlit>=1.35,<2", "pytest>=8,<10", "ruff>=0.6,<1"]
+app = ["streamlit>=1.50,<2", "pydeck>=0.9,<1"]
+dev = ["pytest>=8,<10", "ruff>=0.6,<1", "tomli>=2,<3; python_version < '3.11'"]
+all = ["pystac-client>=0.8,<1", "planetary-computer>=1.0,<2", "requests>=2.31,<3", "osmnx>=2.0,<3", "geopandas>=1.0,<2", "traci>=1.19,<3", "sumolib>=1.19,<3", "streamlit>=1.50,<2", "pydeck>=0.9,<1", "pytest>=8,<10", "ruff>=0.6,<1", "tomli>=2,<3; python_version < '3.11'"]
 
 [project.scripts]
 urbantwin = "urbantwin.cli:main"

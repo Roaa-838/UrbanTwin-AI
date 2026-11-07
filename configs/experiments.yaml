@@ -2,6 +2,9 @@ random_seed: 42
 geoai:
   spatial_block_pixels: 20
   test_fraction: 0.25
+  # Repeated, non-overlapping-by-group holdouts. Class eligibility is decided
+  # independently from each training partition; test support is diagnostic only.
+  spatial_split_seeds: [42, 142, 242]
   max_train_per_class: 1200
   min_train_per_class: 20
   min_test_per_class: 5
@@ -18,11 +21,15 @@ traffic:
     high: 460
   green_seconds_bounds: [12, 55]
   baseline_green_seconds: [30, 30]
-  yellow_seconds: 3
+  # Non-green/yellow durations are read from and preserved from the SUMO network.
+  track_emissions: true
+  # Simulator assumption for generated passenger cars; not an observed Cairo fleet mix.
+  emission_class: HBEFA3/PC_G_EU4
   optimizer_training_seeds: [17]
   evaluation_seeds: [101, 202, 303]
   ga_population: 6
   ga_generations: 3
   pso_particles: 6
   pso_iterations: 3
+  # GA, PSO, and random search each receive 18 objective evaluations.
   # These are small demonstration budgets. Increase only after verifying SUMO results.
