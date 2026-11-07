@@ -1,0 +1,26 @@
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.env
+*.zip
+.ipynb_checkpoints/
+# Downloaded raster assets and local model caches can be large.
+data/real/
+data/synthetic/
+data/osm/
+data/sumo/
+# Ignore all generated experiment outputs by default.
+results/*
+!results/README.md
+!results/figures/
+results/figures/*
+!results/figures/.gitkeep
+reports/generated_*.pdf
+reports/methodology_draft.pdf
+*.log
+.DS_Store
+Thumbs.db

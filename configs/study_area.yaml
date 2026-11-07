@@ -1,0 +1,12 @@
+name: Tahrir Square vicinity, Cairo
+mode: real
+# Longitude/latitude (WGS84): west, south, east, north.
+bbox: [31.225, 30.038, 31.247, 30.053]
+crs: EPSG:32636  # UTM Zone 36N, meters for area/road-density calculations
+resolution_m: 10
+reference_year: 2021
+sentinel_period: ["2021-05-01", "2021-09-30"]
+max_scene_cloud_pct: 35
+composite_scenes: 3
+# WorldCover 2021 and Sentinel-2 during 2021 are broadly comparable, not temporally identical.
+worldcover_year: 2021

@@ -1,0 +1,28 @@
+random_seed: 42
+geoai:
+  spatial_block_pixels: 20
+  test_fraction: 0.25
+  max_train_per_class: 1200
+  min_train_per_class: 20
+  min_test_per_class: 5
+  classifiers: [random_forest, hist_gradient_boosting]
+  ablation: [bands_only, bands_plus_indices]
+traffic:
+  scenario: synthetic_four_way
+  simulation_seconds: 600
+  clearance_seconds: 120
+  warmup_seconds: 60
+  vehicle_rates_per_approach_per_hour:
+    low: 160
+    medium: 300
+    high: 460
+  green_seconds_bounds: [12, 55]
+  baseline_green_seconds: [30, 30]
+  yellow_seconds: 3
+  optimizer_training_seeds: [17]
+  evaluation_seeds: [101, 202, 303]
+  ga_population: 6
+  ga_generations: 3
+  pso_particles: 6
+  pso_iterations: 3
+  # These are small demonstration budgets. Increase only after verifying SUMO results.
