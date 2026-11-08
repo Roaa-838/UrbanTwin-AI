@@ -195,6 +195,18 @@ def _traffic_bundle(root):
         "paired_summary_sha256": sha256_file(paired_summary_path),
         "track_emissions": True,
         "emission_class_assumptions": ["HBEFA3/PC_G_EU4"],
+        "sumo_version": "Eclipse SUMO 1.26.0",
+        "checkpointing": {
+            "schema_version": "urbantwin.sumo-simulation-checkpoint/v1",
+            "runner_contract": "urbantwin.sumo-runner/v1",
+            "runner_source_sha256": "a" * 64,
+            "signal_adapter_sha256": "b" * 64,
+            "separate_from_final_artifacts": True,
+            "estimated_logical_executions": 4,
+            "completed_logical_executions": 4,
+            "physical_executions_this_invocation": 3,
+            "cache_hits": 1,
+        },
     }
     (results / "traffic_provenance.json").write_text(
         json.dumps(provenance), encoding="utf-8"
@@ -277,6 +289,17 @@ def test_tampered_traffic_route_is_rejected(tmp_path):
     route_path = _traffic_bundle(tmp_path)
     route_path.write_text("<routes><vehicle/></routes>\n", encoding="utf-8")
     with pytest.raises(ArtifactIntegrityError, match="hash mismatch"):
+        validate_traffic_artifacts(tmp_path)
+
+
+def test_inconsistent_traffic_checkpoint_accounting_is_rejected(tmp_path):
+    _traffic_bundle(tmp_path)
+    provenance_path = tmp_path / "results/traffic/traffic_provenance.json"
+    provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+    provenance["checkpointing"]["cache_hits"] = 0
+    provenance_path.write_text(json.dumps(provenance), encoding="utf-8")
+
+    with pytest.raises(ArtifactIntegrityError, match="execution accounting"):
         validate_traffic_artifacts(tmp_path)
 
 

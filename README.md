@@ -115,12 +115,72 @@ netconvert --version
 **6. Run a very small SUMO executable smoke test, then the full configured simulation.**
 
 ```powershell
-urbantwin traffic-run --quick
+urbantwin traffic-run --quick --resume
 # After the quick run executes correctly, run the configured multi-scenario benchmark:
-urbantwin traffic-run
+urbantwin traffic-run --resume
 ```
 
-The quick mode runs small optimizer populations and records its results **separately** in `results/traffic_quick/`; it is not a meaningful optimization study. A full run can require dozens of SUMO simulations per scenario and substantial CPU time. You can adjust population, generations and evaluation seeds in `configs/experiments.yaml`. Keep all tested methods, routes and split seeds consistent.
+The quick mode runs small optimizer populations and records its results **separately** in `results/traffic_quick/`; it is not a meaningful optimization study. With the checked-in configuration, a full run schedules 198 logical SUMO requests: `3 scenarios × (3 optimizers × 18 objective evaluations × 1 training seed + 4 methods × 3 evaluation seeds)`. Repeated integer plans can reduce the physical execution count through validated cache reuse, but never reduce an optimizer's declared evaluation budget. You can adjust population, generations and evaluation seeds in `configs/experiments.yaml`. Keep all tested methods, routes and split seeds consistent. The repository does not claim that the full benchmark has run merely because the quick smoke test succeeds.
+
+Every successful unique SUMO simulation is saved atomically under `.urbantwin/checkpoints/traffic/`, independently of the final research tables in `results/traffic/`. Checkpoint identity binds the configuration, network, route, SUMO version, scenario, seed, signal plan, emissions settings and simulation settings. `--resume` reuses only complete, compatible, checksum-validated entries; missing, stale, corrupt or incompatible entries are recomputed. Pressing Ctrl+C may stop the current simulation, but it does not delete checkpoints already completed. Run the same command again with `--resume`. Progress is printed while the benchmark runs and identifies the scenario, method, objective-evaluation number, processed versus estimated SUMO requests, newly executed simulations, cache hits and elapsed time. Repeated integer plans can make the physical run count smaller than the estimate without changing any optimizer budget.
+
+To place checkpoints elsewhere, pass an explicit local directory:
+
+```powershell
+urbantwin traffic-run --resume --checkpoint-dir "D:\UrbanTwin-cache\traffic"
+```
+
+Do not edit checkpoint JSON by hand or copy entries between incompatible experiments. To safely clear only the default traffic checkpoints, first stop any running benchmark, then use this guarded PowerShell 5.1 command. Final result CSVs and MLflow data are not removed; the next run must recompute the cleared simulations.
+
+```powershell
+$repo = (Resolve-Path ".").Path
+$checkpointRoot = [System.IO.Path]::GetFullPath((Join-Path $repo ".urbantwin\checkpoints"))
+$trafficCheckpoints = [System.IO.Path]::GetFullPath((Join-Path $checkpointRoot "traffic"))
+if (-not $trafficCheckpoints.StartsWith(
+    $checkpointRoot + [System.IO.Path]::DirectorySeparatorChar,
+    [System.StringComparison]::OrdinalIgnoreCase
+)) { throw "Refusing to remove a path outside the checkpoint root." }
+if (Test-Path -LiteralPath $trafficCheckpoints) {
+    Remove-Item -LiteralPath $trafficCheckpoints -Recurse -Force
+}
+```
+
+#### Optional MLflow tracking
+
+Checkpointing never requires MLflow. To add experiment tracking, install the separate optional extra and run the benchmark with both flags:
+
+```powershell
+python -m pip install -e ".[mlflow]"
+urbantwin traffic-run --mlflow --resume
+```
+
+The default tracking store is the local SQLite database `.urbantwin/mlflow/mlflow.db`, with local artifacts below `.urbantwin/mlflow/artifacts/`. Both locations are ignored by Git. Runs are organized in the `UrbanTwin-Traffic-Optimization` experiment as a benchmark parent with scenario and method children; individual SUMO executions are not turned into thousands of MLflow runs. The authoritative recovery mechanism remains `.urbantwin/checkpoints/traffic/`, and the authoritative final bundle remains the provenance-checked files in `results/traffic/`. MLflow records only validated outputs and clearly labels modeled SUMO CO₂ as simulator-only—not observed environmental data.
+
+To use another tracking server or database, pass its URI explicitly or set `MLFLOW_TRACKING_URI` before the command. The explicit CLI value takes precedence:
+
+```powershell
+$env:MLFLOW_TRACKING_URI = "http://127.0.0.1:5000"
+urbantwin traffic-run --mlflow --resume
+
+# Equivalent explicit form:
+urbantwin traffic-run --mlflow --resume `
+  --mlflow-tracking-uri "http://127.0.0.1:5000"
+```
+
+For the default local store, open the MLflow UI from the repository root with:
+
+```powershell
+$repo = (Resolve-Path ".").Path
+$dbPath = (Join-Path $repo ".urbantwin\mlflow\mlflow.db").Replace('\', '/')
+$artifactPath = (Join-Path $repo ".urbantwin\mlflow\artifacts").Replace('\', '/')
+mlflow ui `
+  --backend-store-uri "sqlite:///$dbPath" `
+  --default-artifact-root "file:///$artifactPath" `
+  --host 127.0.0.1 `
+  --port 5000
+```
+
+Then visit `http://127.0.0.1:5000`. MLflow logging is post-computation and cannot replace or invalidate validated local SUMO results. If tracking fails, the command reports that failure explicitly while retaining the local checkpoints and final artifacts.
 
 **7. Display the dashboard and generate the report once real results exist.**
 
@@ -165,7 +225,9 @@ UrbanTwin-AI/
 │   │   ├── network.py
 │   │   ├── baselines.py
 │   │   ├── optimize.py
-│   │   └── benchmark.py
+│   │   ├── benchmark.py
+│   │   ├── checkpoints.py
+│   │   └── mlflow_tracking.py
 │   └── visualization/
 │       ├── plots.py
 │       ├── dashboard.py

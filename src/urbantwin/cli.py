@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -45,6 +46,25 @@ def _parser() -> argparse.ArgumentParser:
         help="External route path template containing both {scenario} and {seed}",
     )
     traffic.add_argument("--tls-id", help="Traffic-light ID in an external network")
+    traffic.add_argument(
+        "--resume",
+        action="store_true",
+        help="Reuse compatible, validated per-simulation SUMO checkpoints",
+    )
+    traffic.add_argument(
+        "--checkpoint-dir",
+        type=Path,
+        help="Override the local checkpoint directory (independent of final results)",
+    )
+    traffic.add_argument(
+        "--mlflow",
+        action="store_true",
+        help="Log the completed benchmark to optional local/configured MLflow tracking",
+    )
+    traffic.add_argument(
+        "--mlflow-tracking-uri",
+        help="MLflow tracking URI (default: local SQLite under .urbantwin/mlflow)",
+    )
     report = commands.add_parser("report", help="Generate a provenance-checked PDF report")
     report.add_argument(
         "--draft",
@@ -262,14 +282,46 @@ def _run_traffic(args: argparse.Namespace) -> None:
         config_path = _quick_config(config_path)
         print("QUICK TEST - equal optimizer budgets are too small for scientific conclusions")
     output = ROOT / ("results/traffic_quick" if args.quick else "results/traffic")
+    if args.mlflow_tracking_uri and not args.mlflow:
+        raise ValueError("--mlflow-tracking-uri requires --mlflow")
     frame = run_benchmark(
         config_path,
         output,
         str(args.network) if args.network is not None else None,
         args.routes_template,
         args.tls_id,
+        resume=args.resume,
+        checkpoint_dir=args.checkpoint_dir,
     )
     figures = traffic_figures(output)
+    mlflow_result = None
+    mlflow_error = None
+    if args.mlflow:
+        from urbantwin.traffic.mlflow_tracking import (
+            MlflowTrackingError,
+            MlflowUnavailableError,
+            track_benchmark,
+        )
+
+        try:
+            mlflow_result = track_benchmark(
+                output,
+                config_path=config_path,
+                tracking_uri=args.mlflow_tracking_uri,
+                resume=args.resume,
+                figure_paths=figures,
+            )
+        except MlflowUnavailableError as exc:
+            mlflow_error = (
+                "MLflow tracking was requested but the optional dependency is unavailable. "
+                "Install it with `python -m pip install -e \".[mlflow]\"`. "
+                f"Local SUMO artifacts remain available in {output}. Details: {exc}"
+            )
+        except MlflowTrackingError as exc:
+            mlflow_error = (
+                "MLflow tracking failed after local SUMO artifacts were validated and saved. "
+                f"Local results remain available in {output}. Details: {exc}"
+            )
     preferred = [
         "scenario",
         "method",
@@ -287,6 +339,19 @@ def _run_traffic(args: argparse.Namespace) -> None:
     print("Traffic and CO2 outputs below are simulator-only; source labels are retained.")
     print(frame[available].to_string(index=False))
     print("Figures:", *[str(path) for path in figures], sep="\n  ")
+    if mlflow_result is not None:
+        action = (
+            "reused compatible completed run"
+            if mlflow_result.get("already_completed")
+            else "logged completed run"
+        )
+        print(
+            f"MLflow {action}: run_id={mlflow_result['run_id']} "
+            f"tracking_uri={mlflow_result['tracking_uri']}"
+        )
+    if mlflow_error is not None:
+        print(f"ERROR: {mlflow_error}", file=sys.stderr)
+        raise RuntimeError(mlflow_error)
 
 
 def _run_report(args: argparse.Namespace) -> None:
@@ -312,6 +377,13 @@ def main(argv: list[str] | None = None) -> int:
     }
     try:
         handlers[args.cmd](args)
+    except KeyboardInterrupt:
+        print(
+            "Interrupted by user. Completed SUMO checkpoints were preserved; "
+            "rerun traffic-run with --resume.",
+            file=sys.stderr,
+        )
+        return 130
     except (FileNotFoundError, KeyError, RuntimeError, TypeError, ValueError) as exc:
         parser.exit(2, f"urbantwin {args.cmd} failed: {exc}\n")
     return 0

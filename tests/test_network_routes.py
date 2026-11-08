@@ -4,11 +4,31 @@ import pytest
 
 from urbantwin.traffic.network import (
     DEFAULT_EMISSION_CLASS,
+    _remove_generated_netconvert_comment,
     count_route_vehicles,
     create_routes,
     validate_external_inputs,
     validate_routes_for_network,
 )
+
+
+def test_generated_network_hash_input_excludes_netconvert_timestamp_and_paths(tmp_path):
+    first = tmp_path / "first.net.xml"
+    second = tmp_path / "second.net.xml"
+    first.write_text(
+        '<?xml version="1.0"?>\n<!-- generated on 2026-01-01 by netconvert\npath=A -->\n<net/>\n',
+        encoding="utf-8",
+    )
+    second.write_text(
+        '<?xml version="1.0"?>\n<!-- generated on 2026-11-07 by netconvert\npath=B -->\n<net/>\n',
+        encoding="utf-8",
+    )
+
+    _remove_generated_netconvert_comment(first)
+    _remove_generated_netconvert_comment(second)
+
+    assert first.read_bytes() == second.read_bytes()
+    assert b"generated on" not in first.read_bytes()
 
 
 def _external_fixture(tmp_path, *, bad_edge=False, explicit_emissions=True):

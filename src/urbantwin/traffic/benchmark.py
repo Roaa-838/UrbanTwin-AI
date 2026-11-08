@@ -5,9 +5,14 @@ network is not treated as a calibrated Cairo model without separate evidence.
 """
 from __future__ import annotations
 
+import hashlib
+import inspect
+import subprocess
 import tempfile
 import time
 import xml.etree.ElementTree as ET
+from collections import Counter
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +21,7 @@ import pandas as pd
 
 from urbantwin.common import ROOT, load_yaml, metadata, save_json, sha256_file
 from urbantwin.traffic.baselines import install_tuned_program
+from urbantwin.traffic.checkpoints import CHECKPOINT_SCHEMA, CheckpointStore, SimulationIdentity
 from urbantwin.traffic.network import (
     DEFAULT_EMISSION_CLASS,
     binary,
@@ -25,6 +31,83 @@ from urbantwin.traffic.network import (
     validate_routes_for_network,
 )
 from urbantwin.traffic.optimize import genetic_algorithm, particle_swarm, random_search
+
+_RUNNER_CONTRACT = "urbantwin.sumo-runner/v1"
+
+
+def _sumo_version() -> str:
+    """Return the executable version recorded in every checkpoint identity."""
+    try:
+        completed = subprocess.run(
+            [binary("sumo"), "--version"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise RuntimeError(f"Unable to determine the installed SUMO version: {exc}") from exc
+    output = "\n".join(part for part in (completed.stdout, completed.stderr) if part).strip()
+    first_line = next((line.strip() for line in output.splitlines() if line.strip()), "")
+    if not first_line:
+        raise RuntimeError("SUMO --version returned no version information")
+    return first_line
+
+
+@dataclass
+class _ProgressReporter:
+    total_estimated: int
+    started: float = field(default_factory=time.monotonic)
+    completed: int = 0
+    physical_executions: int = 0
+    cache_hits: int = 0
+    lookup_statuses: Counter[str] = field(default_factory=Counter)
+
+    def _line(
+        self,
+        *,
+        scenario: str,
+        method: str,
+        objective_evaluation: str,
+        seed: int,
+        status: str,
+    ) -> str:
+        elapsed = time.monotonic() - self.started
+        return (
+            "SUMO progress "
+            f"scenario={scenario} method={method} "
+            f"objective_evaluation={objective_evaluation} seed={seed} "
+            f"completed_executions={self.completed}/{self.total_estimated} "
+            f"executed_this_run={self.physical_executions} cache_hits={self.cache_hits} "
+            f"elapsed={elapsed:.1f}s status={status}"
+        )
+
+    def announce(self, **context: Any) -> None:
+        print(self._line(status="starting", **context), flush=True)
+
+    def finish(self, *, cache_hit: bool, lookup_status: str, **context: Any) -> None:
+        self.completed += 1
+        self.lookup_statuses[lookup_status] += 1
+        if cache_hit:
+            self.cache_hits += 1
+            status = "cache-hit"
+        else:
+            self.physical_executions += 1
+            status = (
+                "completed"
+                if lookup_status in {"missing", "fresh"}
+                else f"recomputed-{lookup_status}"
+            )
+        print(self._line(status=status, **context), flush=True)
+
+    def interrupted(self) -> None:
+        elapsed = time.monotonic() - self.started
+        print(
+            "SUMO interrupted: "
+            f"completed_executions={self.completed}/{self.total_estimated} "
+            f"executed_this_run={self.physical_executions} cache_hits={self.cache_hits} "
+            f"elapsed={elapsed:.1f}s; completed checkpoints remain durable.",
+            flush=True,
+        )
 
 
 def _load_traffic_lib():
@@ -84,7 +167,14 @@ def run_one(
         queue_observations = 0
         co2_mg = 0.0
         try:
-            traci.start(command)
+            try:
+                traci.start(command, numRetries=10)
+            except (traci.exceptions.FatalTraCIError, traci.exceptions.TraCIException) as exc:
+                raise RuntimeError(
+                    "SUMO started but TraCI could not establish its localhost connection. "
+                    "Check firewall/socket permissions and retry with --resume; no incomplete "
+                    "simulation checkpoint was written."
+                ) from exc
             started = True
             signal_ids = list(traci.trafficlight.getIDList())
             signal = tls_id or (signal_ids[0] if signal_ids else None)
@@ -194,6 +284,14 @@ def objective_metrics(row: dict[str, Any]) -> float:
     )
 
 
+def _simulation_runner_source_sha256() -> str:
+    """Hash only code that can change one plan/route simulation payload."""
+    source = "\n".join(
+        inspect.getsource(function) for function in (_load_traffic_lib, _mean, run_one)
+    )
+    return hashlib.sha256(source.encode("utf-8")).hexdigest()
+
+
 def _validate_config(config: dict[str, Any]) -> None:
     if "yellow_seconds" in config:
         raise ValueError(
@@ -286,6 +384,9 @@ def run_benchmark(
     network_file: str | None = None,
     routes_template: str | None = None,
     tls_id: str | None = None,
+    *,
+    resume: bool = False,
+    checkpoint_dir: str | Path | None = None,
 ) -> pd.DataFrame:
     config_path = Path(config_file)
     config_all = load_yaml(config_path)
@@ -351,112 +452,250 @@ def run_benchmark(
     optimization: dict[str, Any] = {}
     evaluation_programs: dict[str, Any] = {}
     data_kind = "simulation_external_user_network" if external else "simulation_abstract"
-
-    for scenario, rate in scenarios.items():
-        scenario_key = str(scenario)
-
-        def score(plan, scenario_key=scenario_key):
-            measures = [
-                run_one(
-                    network,
-                    route_paths[(scenario_key, seed)],
-                    plan,
-                    seed,
-                    config,
-                    tls_id,
-                    route_records[(scenario_key, seed)],
-                )
-                for seed in train_seeds
-            ]
-            return float(np.mean([objective_metrics(measure) for measure in measures]))
-
-        optimized: dict[str, tuple[dict[str, Any], float]] = {}
-        calls = [
-            (
-                "GA",
-                lambda: genetic_algorithm(
-                    score,
-                    bounds,
-                    population=int(config["ga_population"]),
-                    generations=int(config["ga_generations"]),
-                    seed=base_optimizer_seed,
-                ),
-            ),
-            (
-                "PSO",
-                lambda: particle_swarm(
-                    score,
-                    bounds,
-                    particles=int(config["pso_particles"]),
-                    iterations=int(config["pso_iterations"]),
-                    seed=base_optimizer_seed + 1,
-                ),
-            ),
-            (
-                "random_search",
-                lambda: random_search(
-                    score, bounds, evaluations=evaluation_budget, seed=base_optimizer_seed + 2
-                ),
-            ),
-        ]
-        for method, call in calls:
-            started = time.monotonic()
-            result = call()
-            elapsed = time.monotonic() - started
-            if int(result["objective_evaluations"]) != evaluation_budget:
-                raise RuntimeError(f"{method} did not use the declared equal evaluation budget")
-            optimized[method] = (result, elapsed)
-        optimization[scenario_key] = {
-            method: {**result, "optimization_wall_time_s": elapsed}
-            for method, (result, elapsed) in optimized.items()
-        }
-        optimization[scenario_key].update(
-            {
-                "objective_evaluation_budget_per_method": evaluation_budget,
-                "training_seed_count_per_objective": len(train_seeds),
-                "training_sumo_runs_per_method": evaluation_budget * len(train_seeds),
-                "training_seeds": train_seeds,
-                "evaluation_seeds": evaluation_seeds,
-            }
+    config_hash = sha256_file(config_path)
+    network_hash = sha256_file(network)
+    route_hashes = {key: sha256_file(path) for key, path in route_paths.items()}
+    runner_source_hash = _simulation_runner_source_sha256()
+    signal_adapter_hash = sha256_file(Path(__file__).with_name("baselines.py"))
+    optimizer_source_hash = sha256_file(Path(__file__).with_name("optimize.py"))
+    installed_sumo_version = _sumo_version()
+    checkpoint_root = Path(
+        checkpoint_dir or (ROOT / ".urbantwin" / "checkpoints" / "traffic")
+    )
+    resolved_checkpoint = checkpoint_root.resolve()
+    resolved_output = output.resolve()
+    if (
+        resolved_checkpoint == resolved_output
+        or resolved_checkpoint in resolved_output.parents
+        or resolved_output in resolved_checkpoint.parents
+    ):
+        raise ValueError(
+            "SUMO checkpoints must be stored separately from final research artifacts: "
+            f"checkpoint_dir={resolved_checkpoint}, out_dir={resolved_output}"
         )
-        plans = [("fixed", baseline, 0.0)] + [
-            (method, tuple(result["plan"]), elapsed)
-            for method, (result, elapsed) in optimized.items()
-        ]
-        for method, plan, optimizer_seconds in plans:
-            for seed in evaluation_seeds:
-                result = run_one(
-                    network,
-                    route_paths[(scenario_key, seed)],
-                    plan,
-                    seed,
-                    config,
-                    tls_id,
-                    route_records[(scenario_key, seed)],
-                )
-                evaluation_programs[f"{scenario_key}__{method}__{seed}"] = result[
-                    "signal_program"
-                ]
-                comparison.append(
+    checkpoint_store = CheckpointStore(checkpoint_root)
+    session_results: dict[str, dict[str, Any]] = {}
+    total_estimated = len(scenarios) * (
+        3 * evaluation_budget * len(train_seeds) + 4 * len(evaluation_seeds)
+    )
+    progress = _ProgressReporter(total_estimated)
+
+    def cached_run(
+        *,
+        scenario_key: str,
+        method: str,
+        objective_evaluation: str,
+        plan: tuple[int, int],
+        seed: int,
+    ) -> dict[str, Any]:
+        route_record = route_records[(scenario_key, seed)]
+        identity = SimulationIdentity(
+            config_sha256=config_hash,
+            network_sha256=network_hash,
+            route_sha256=route_hashes[(scenario_key, seed)],
+            sumo_version=installed_sumo_version,
+            scenario=scenario_key,
+            seed=seed,
+            signal_plan={
+                "tls_id": tls_id or "__first_available__",
+                "green_seconds": [int(plan[0]), int(plan[1])],
+            },
+            emission_settings={
+                "track_emissions": track_emissions,
+                "configured_emission_class": config.get("emission_class"),
+                "route_emission_classes": sorted(route_record.get("emission_classes", [])),
+                "co2_measurement": "TraCI vehicle CO2 rate integrated over simulation steps",
+            },
+            simulation_settings={
+                "runner_contract": _RUNNER_CONTRACT,
+                "runner_source_sha256": runner_source_hash,
+                "signal_adapter_sha256": signal_adapter_hash,
+                "simulation_seconds": int(config["simulation_seconds"]),
+                "clearance_seconds": int(config["clearance_seconds"]),
+                "warmup_seconds": int(config.get("warmup_seconds", 0)),
+                "time_to_teleport_s": -1,
+                "step_length": "SUMO network/default",
+                "queue_scope": "unique non-internal TLS-controlled lanes",
+            },
+        )
+        context = {
+            "scenario": scenario_key,
+            "method": method,
+            "objective_evaluation": objective_evaluation,
+            "seed": seed,
+        }
+        progress.announce(**context)
+        if identity.fingerprint in session_results:
+            result = session_results[identity.fingerprint]
+            progress.finish(cache_hit=True, lookup_status="session", **context)
+            return result
+
+        if resume:
+            lookup = checkpoint_store.lookup(identity)
+            if lookup.hit:
+                assert lookup.result is not None
+                session_results[identity.fingerprint] = lookup.result
+                progress.finish(cache_hit=True, lookup_status="hit", **context)
+                return lookup.result
+            lookup_status = lookup.status
+        else:
+            lookup_status = "fresh"
+
+        result = run_one(
+            network,
+            route_paths[(scenario_key, seed)],
+            plan,
+            seed,
+            config,
+            tls_id,
+            route_record,
+        )
+        checkpoint_store.save(identity, result, overwrite=not resume)
+        session_results[identity.fingerprint] = result
+        progress.finish(cache_hit=False, lookup_status=lookup_status, **context)
+        return result
+
+    try:
+        for scenario, rate in scenarios.items():
+            scenario_key = str(scenario)
+
+            def make_score(method: str, score_scenario: str):
+                objective_index = 0
+
+                def score(candidate_plan: tuple[int, int]) -> float:
+                    nonlocal objective_index
+                    objective_index += 1
+                    measures = [
+                        cached_run(
+                            scenario_key=score_scenario,
+                            method=method,
+                            objective_evaluation=f"{objective_index}/{evaluation_budget}",
+                            plan=candidate_plan,
+                            seed=seed,
+                        )
+                        for seed in train_seeds
+                    ]
+                    return float(np.mean([objective_metrics(measure) for measure in measures]))
+
+                return score
+
+            optimized: dict[str, tuple[dict[str, Any], float]] = {}
+            optimizer_calls = [
+                (
+                    "GA",
+                    genetic_algorithm,
                     {
-                        "scenario": scenario_key,
-                        "demand_vph_per_approach": float(rate),
-                        "method": method,
-                        "seed": seed,
-                        "train_seed_overlap": False,
-                        "green_ns_s": int(plan[0]),
-                        "green_ew_s": int(plan[1]),
-                        "data_kind": data_kind,
-                        "optimization_wall_time_s": optimizer_seconds,
-                        **{
-                            key: value
-                            for key, value in result.items()
-                            if not isinstance(value, (list, dict))
-                        },
-                    }
-                )
+                        "population": int(config["ga_population"]),
+                        "generations": int(config["ga_generations"]),
+                        "seed": base_optimizer_seed,
+                    },
+                ),
+                (
+                    "PSO",
+                    particle_swarm,
+                    {
+                        "particles": int(config["pso_particles"]),
+                        "iterations": int(config["pso_iterations"]),
+                        "seed": base_optimizer_seed + 1,
+                    },
+                ),
+                (
+                    "random_search",
+                    random_search,
+                    {"evaluations": evaluation_budget, "seed": base_optimizer_seed + 2},
+                ),
+            ]
+            for method, optimizer, optimizer_kwargs in optimizer_calls:
+                started = time.monotonic()
+                result = optimizer(make_score(method, scenario_key), bounds, **optimizer_kwargs)
+                elapsed = time.monotonic() - started
+                if int(result["objective_evaluations"]) != evaluation_budget:
+                    raise RuntimeError(
+                        f"{method} did not use the declared equal evaluation budget"
+                    )
+                optimized[method] = (result, elapsed)
+            optimization[scenario_key] = {
+                method: {
+                    **result,
+                    "optimization_wall_time_s": elapsed,
+                    "runtime_scope": (
+                        "current invocation; validated cache hits reduce resumed wall time"
+                    ),
+                }
+                for method, (result, elapsed) in optimized.items()
+            }
+            optimization[scenario_key].update(
+                {
+                    "objective_evaluation_budget_per_method": evaluation_budget,
+                    "training_seed_count_per_objective": len(train_seeds),
+                    "training_sumo_runs_per_method": evaluation_budget * len(train_seeds),
+                    "training_seeds": train_seeds,
+                    "evaluation_seeds": evaluation_seeds,
+                }
+            )
+            plans = [("fixed", baseline, 0.0)] + [
+                (method, tuple(result["plan"]), elapsed)
+                for method, (result, elapsed) in optimized.items()
+            ]
+            for method, plan, optimizer_seconds in plans:
+                for seed in evaluation_seeds:
+                    result = cached_run(
+                        scenario_key=scenario_key,
+                        method=method,
+                        objective_evaluation="held-out",
+                        plan=plan,
+                        seed=seed,
+                    )
+                    evaluation_programs[f"{scenario_key}__{method}__{seed}"] = result[
+                        "signal_program"
+                    ]
+                    comparison.append(
+                        {
+                            "scenario": scenario_key,
+                            "demand_vph_per_approach": float(rate),
+                            "method": method,
+                            "seed": seed,
+                            "train_seed_overlap": False,
+                            "green_ns_s": int(plan[0]),
+                            "green_ew_s": int(plan[1]),
+                            "data_kind": data_kind,
+                            "optimization_wall_time_s": optimizer_seconds,
+                            **{
+                                key: value
+                                for key, value in result.items()
+                                if not isinstance(value, (list, dict))
+                            },
+                        }
+                    )
+    except KeyboardInterrupt:
+        progress.interrupted()
+        print(f"Resume checkpoints: {checkpoint_root.resolve()}", flush=True)
+        raise
+
+    if progress.completed != total_estimated:
+        raise RuntimeError(
+            "SUMO execution accounting mismatch: "
+            f"completed {progress.completed} of {total_estimated} estimated requests"
+        )
 
     frame = pd.DataFrame(comparison)
+    result_keys = ["scenario", "method", "seed", "data_kind"]
+    duplicates = frame.duplicated(result_keys, keep=False)
+    if duplicates.any():
+        repeated = frame.loc[duplicates, result_keys].to_dict(orient="records")
+        raise RuntimeError(f"Duplicate held-out traffic results were produced: {repeated}")
+    leading_columns = [
+        "scenario",
+        "demand_vph_per_approach",
+        "method",
+        "seed",
+        "train_seed_overlap",
+        "green_ns_s",
+        "green_ew_s",
+        "data_kind",
+        "optimization_wall_time_s",
+    ]
+    frame = frame[leading_columns + sorted(set(frame.columns) - set(leading_columns))]
     metrics_path = output / "traffic_metrics.csv"
     frame.to_csv(metrics_path, index=False)
     summary = (
@@ -529,6 +768,26 @@ def run_benchmark(
             "2*(unfinished inserted + pending insertion); tuning only"
         ),
         equal_objective_evaluation_budget=evaluation_budget,
+        sumo_version=installed_sumo_version,
+        optimizer_source_sha256=optimizer_source_hash,
+        checkpointing={
+            "schema_version": CHECKPOINT_SCHEMA,
+            "runner_contract": _RUNNER_CONTRACT,
+            "runner_source_sha256": runner_source_hash,
+            "signal_adapter_sha256": signal_adapter_hash,
+            "checkpoint_root": _config_reference(checkpoint_root),
+            "separate_from_final_artifacts": True,
+            "resume_requested": bool(resume),
+            "estimated_logical_executions": total_estimated,
+            "completed_logical_executions": progress.completed,
+            "physical_executions_this_invocation": progress.physical_executions,
+            "cache_hits": progress.cache_hits,
+            "lookup_status_counts": dict(sorted(progress.lookup_statuses.items())),
+        },
+        optimization_runtime_interpretation=(
+            "Wall time for the current optimizer invocation; validated checkpoint hits can "
+            "reduce this orchestration time on resume, so it is not a traffic-performance KPI."
+        ),
         optimization=optimization,
         evaluation_signal_programs=evaluation_programs,
         track_emissions=track_emissions,

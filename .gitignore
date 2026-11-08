@@ -5,6 +5,7 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .ruff_cache/
+.urbantwin/
 .env
 *.zip
 .ipynb_checkpoints/
@@ -24,5 +25,11 @@ reports/generated_*.provenance.json
 reports/methodology_draft.pdf
 reports/methodology_draft.provenance.json
 *.log
+# Optional MLflow defaults/customizations should remain local experiment state.
+/mlruns/
+/mlflow.db
+/mlflow.db-shm
+/mlflow.db-wal
+/mlartifacts/
 .DS_Store
 Thumbs.db
