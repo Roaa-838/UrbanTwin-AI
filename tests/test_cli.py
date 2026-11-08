@@ -40,3 +40,32 @@ def test_status_is_explicit_when_nothing_has_run(tmp_path, monkeypatch, capsys):
     assert "NOT RUN: synthetic demo data" in output
     assert "NOT RUN: real GeoAI results" in output
     assert "NOT RUN: SUMO results" in output
+
+
+def test_traffic_parser_supports_resume_and_optional_mlflow(tmp_path):
+    args = cli._parser().parse_args(
+        [
+            "traffic-run",
+            "--resume",
+            "--checkpoint-dir",
+            str(tmp_path / "checkpoints"),
+            "--mlflow",
+            "--mlflow-tracking-uri",
+            "sqlite:///tracking.db",
+        ]
+    )
+
+    assert args.resume is True
+    assert args.checkpoint_dir == tmp_path / "checkpoints"
+    assert args.mlflow is True
+    assert args.mlflow_tracking_uri == "sqlite:///tracking.db"
+
+
+def test_cli_reports_interruption_and_returns_130(monkeypatch, capsys):
+    def interrupted(_args):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli, "_run_traffic", interrupted)
+
+    assert cli.main(["traffic-run"]) == 130
+    assert "--resume" in capsys.readouterr().err

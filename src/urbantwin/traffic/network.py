@@ -6,6 +6,7 @@ not calibrated Cairo geometry or observed traffic.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import string
 import subprocess
@@ -18,6 +19,26 @@ from typing import Any
 import numpy as np
 
 DEFAULT_EMISSION_CLASS = "HBEFA3/PC_G_EU4"
+
+
+def _remove_generated_netconvert_comment(network: Path) -> None:
+    """Remove netconvert's nondeterministic timestamp/path comment.
+
+    The generated XML graph is deterministic, but netconvert prefixes it with
+    a wall-clock timestamp and absolute invocation paths. Those non-scientific
+    fields otherwise change the network SHA on every run and prevent compatible
+    checkpoints from being reused.
+    """
+    text = network.read_text(encoding="utf-8")
+    normalized, replacements = re.subn(
+        r"\n<!-- generated on .*?-->\r?\n",
+        "\n",
+        text,
+        count=1,
+        flags=re.DOTALL,
+    )
+    if replacements:
+        network.write_text(normalized, encoding="utf-8", newline="\n")
 
 
 def binary(name: str) -> str:
@@ -84,6 +105,7 @@ def create_network(out_dir: str | Path) -> Path:
     result = subprocess.run(command, capture_output=True, text=True, check=False)
     if result.returncode != 0 or not network.is_file():
         raise RuntimeError(f"netconvert failed: {result.stderr[-2500:]}")
+    _remove_generated_netconvert_comment(network)
     return network
 
 

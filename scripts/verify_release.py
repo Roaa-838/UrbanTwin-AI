@@ -25,6 +25,8 @@ EXPECTED = [
     "src/urbantwin/data/demo.py",
     "src/urbantwin/geoai/train.py",
     "src/urbantwin/traffic/benchmark.py",
+    "src/urbantwin/traffic/checkpoints.py",
+    "src/urbantwin/traffic/mlflow_tracking.py",
     "src/urbantwin/visualization/dashboard.py",
     "reports/research_report.pdf",
 ]
@@ -96,6 +98,12 @@ for extra in ("app", "all"):
     dependencies = metadata.get("optional-dependencies", {}).get(extra, [])
     if not any(dependency.lower().startswith("pydeck") for dependency in dependencies):
         fail(f"The {extra!r} dependency group must declare pydeck explicitly")
+optional = metadata.get("optional-dependencies", {})
+mlflow_dependencies = optional.get("mlflow", [])
+if not any(dependency.lower().startswith("mlflow") for dependency in mlflow_dependencies):
+    fail("The optional 'mlflow' dependency group must declare MLflow")
+if any(dependency.lower().startswith("mlflow") for dependency in metadata.get("dependencies", [])):
+    fail("MLflow must remain optional and must not be a core dependency")
 
 tracked = tracked_files()
 large_data_suffixes = {".jp2", ".npy", ".npz", ".tif", ".tiff", ".zarr"}

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -352,6 +353,31 @@ def validate_traffic_artifacts(
     _require_hash(provenance, "summary_sha256", summary_path)
     _require_hash(provenance, "paired_deltas_sha256", paired_deltas_path)
     _require_hash(provenance, "paired_summary_sha256", paired_summary_path)
+
+    checkpointing = provenance.get("checkpointing")
+    if checkpointing is not None:
+        if not isinstance(checkpointing, dict):
+            raise ArtifactIntegrityError("Traffic checkpoint provenance must be an object")
+        if checkpointing.get("schema_version") != "urbantwin.sumo-simulation-checkpoint/v1":
+            raise ArtifactIntegrityError("Traffic checkpoint provenance has an unsupported schema")
+        if checkpointing.get("separate_from_final_artifacts") is not True:
+            raise ArtifactIntegrityError("Traffic checkpoints are not declared separate from results")
+        estimated = checkpointing.get("estimated_logical_executions")
+        completed = checkpointing.get("completed_logical_executions")
+        physical = checkpointing.get("physical_executions_this_invocation")
+        hits = checkpointing.get("cache_hits")
+        if not all(isinstance(value, int) and value >= 0 for value in (estimated, completed, physical, hits)):
+            raise ArtifactIntegrityError("Traffic checkpoint execution counts are invalid")
+        if completed != estimated or physical + hits != completed:
+            raise ArtifactIntegrityError("Traffic checkpoint execution accounting is inconsistent")
+        for name in ("runner_source_sha256", "signal_adapter_sha256"):
+            value = checkpointing.get(name)
+            if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
+                raise ArtifactIntegrityError(f"Traffic checkpoint provenance has invalid {name}")
+        if not isinstance(provenance.get("sumo_version"), str) or not provenance[
+            "sumo_version"
+        ].strip():
+            raise ArtifactIntegrityError("Traffic checkpoint provenance is missing SUMO version")
 
     config_path_value = provenance.get("config_path")
     if not isinstance(config_path_value, str) or not config_path_value:
