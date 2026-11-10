@@ -1,0 +1,16 @@
+# Portfolio summary: observed Greater Cairo urban-data study
+
+Built a provenance-first Greater Cairo research prototype that validates and normalizes 6,618 real directional 20-minute traffic-count records (2.96 million observed vehicles), aligns them with released survey geometry and a separately retrieved current OpenStreetMap road graph in EPSG:32636, and evaluates leakage-controlled count-estimation models on a frozen joint future-date/unseen-site holdout. The work includes deterministic ingestion, source and artifact hashes, grouped validation, site-bootstrap uncertainty, vehicle-class and site error breakdowns, near-survey 2024 Sentinel-2 context with WorldCover 2021 kept historic, and explicit scientific gates that prevent link counts or current map geometry from being misrepresented as turning demand or a calibrated signal-control digital twin.
+
+## Application-specific bullet variants
+
+- **SMACCs:** Developed an auditable smart-city mobility study that combines measured Greater Cairo link counts, projected geospatial features and historic satellite context, while separating online forecasts, measurement-free estimates and unsupported control claims.
+- **Copernicus Digital Earth:** Integrated three real Sentinel-2 L2A scenes around the October 2024 traffic survey and ESA WorldCover 2021 on a validated 10 m projected grid, with documented SCL masks, provenance and explicit historic-reference labeling.
+- **GeoTech:** Engineered a deterministic geospatial pipeline that validates WGS84 survey lines, projects to UTM 36N, detects ambiguous source joins, retrieves and validates an attributed current OSM drive graph, conservatively map-matches the two in-AOI survey lines, and binds normalized tables, maps and model outputs to checksums.
+- **AISS:** Implemented leakage-aware machine-learning evaluation for directional vehicle counts using site-grouped development folds, a frozen future-date/unseen-site test, regularized Poisson, Random Forest and histogram gradient boosting models, plus site-level bootstrap uncertainty.
+- **Toulouse:** Produced a reproducible urban analytics case study spanning real-data ingestion, spatial feature engineering, count-model diagnostics, measured-flow visualization and responsible limits, with exact Windows/Python commands and machine-readable provenance.
+- **Lille Data Science:** Compared historical-mean, regularized count, ensemble and online-persistence baselines under clearly separated information budgets; retained per-site errors and uncertainty, and stopped the signal-optimization phase when the observations could not identify turning demand or controller operation.
+
+## Scope statement
+
+Completed work covers measured directional link-flow analysis, a bounded predictive prototype, near-survey 2024 Sentinel context with WorldCover 2021 kept historic, and a validated current OSM road-context bundle for the Tahrir AOI (849 nodes, 1,788 directed edges; two predeclared survey lines spatially matched). It does **not** establish the semantics of TfC direction codes, a 2024 road reconstruction, observed turning movements, a signal-ready network, a calibrated Cairo SUMO model, field-verified signal timing, causal effects, deployed control or real emissions measurement. The separate repository SUMO benchmark is an abstract simulation and remains labeled as such.

@@ -1,49 +1,84 @@
-# UrbanTwin-AI — Research case study (initial implementation)
+# UrbanTwin-AI — evidence-bounded Greater Cairo research case study
 
-**Research status (November 2026):** Source code and offline synthetic fixtures are implemented. Real Earth-observation/OSM acquisition still requires network execution, and full-budget traffic outcomes still require a reviewed run with Eclipse SUMO installed. **No performance claims are being made yet.**
+**Verified local status (November 2026):** real Earth-observation workflows, the measured TfC
+traffic analysis and the existing full abstract SUMO benchmark have been executed locally and pass
+strict provenance validation. A measured-demand signal-control simulation was **not run** because
+the available observations do not support it. This is a research prototype, not a deployed
+controller or a calibrated Cairo digital twin.
 
-## Motivation
+## Research question
 
-Urban research frequently combines Earth-observation mapping and traffic models, but it is easy to conflate city imagery with observed mobility conditions. This prototype separates a geospatial description of a Cairo study area from a reproducible and explicitly synthetic traffic signal optimization experiment.
+How can real Earth observation, measured directional traffic demand and reproducible
+counterfactual simulation be studied together without blurring measured, remotely sensed,
+third-party mapped, inferred and entirely simulated variables?
 
-## Problem statement
+## Completed evidence streams
 
-How can an Earth-observation and traffic-control workflow expose source provenance, spatial validation, simulator assumptions and failure modes so that AI-driven urban analysis is testable rather than just a visualization?
+### Real Earth observation
 
-## Individual contribution
+The project aligns Sentinel-2 L2A bands and ESA WorldCover to a 10 m EPSG:32636 grid with explicit
+SCL masking, continuous/categorical resampling and source-item provenance. The 2021 GeoAI experiment
+uses repeated grouped spatial evaluation and reports agreement with WorldCover pseudo-labels—not
+independent land-cover accuracy. A separate near-survey bundle contains real Sentinel-2 L2A scenes
+from 24 October, 29 October and 3 November 2024. WorldCover 2021 remains a historic reference, not
+2024 ground truth.
 
-Developed the integrated Python research framework; public Sentinel-2 and ESA WorldCover STAC acquisition and geospatial alignment; spatially blocked land-cover reference-label benchmarks; deterministic abstract SUMO scenario generator; GA, PSO, and equal-budget random-search signal-timing optimizers; evaluation scripts, CI tests, dashboard, and research-report generator. If significant contributions from others are incorporated later, credit them explicitly.
+### Measured TfC traffic
 
-## Method
+The official release contains 6,618 directional 20-minute records, 12 vehicle classes and
+2,961,483 observed vehicles across 142 counted directional segments. The normalized local bundle
+preserves source values, missingness, undefined direction semantics, unknown timezone and absent
+sample-validity flags. Five OSM-ID conflicts affecting 156 rows remain visible and are excluded from
+the primary spatial benchmark.
 
-1. A small WGS84-defined Cairo AOI is projected to EPSG:32636 and sampled at 10m.
-2. A cloud-screened multi-scene Sentinel-2 L2A median is aligned with the 2021 ESA WorldCover class raster.
-3. NDVI/NDBI and road-network context are recorded with data sources, STAC item IDs, CRS, and limitations.
-4. Random Forest and histogram gradient boosting are tested over repeated group-disjoint spatial splits, with and without two spectral indices. Eligible labels are selected from training support alone; unsupported classes and every per-class confusion matrix are retained. **Evaluation is against WorldCover pseudo-labels, not independent surveyed ground truth**.
-5. A generic four-way SUMO junction receives low/medium/high generated demand. Fixed green durations are compared against GA-, PSO-, and equal-budget random-search timings. Optimization seeds are separate from paired evaluation seeds.
-6. The dashboard shows real EO results and simulator-only SUMO results in separately labeled panels after artifact hashes and provenance agree.
+The source has no official physical-site key. A declared 250 m projected line-distance connected-
+component rule reproducibly gives 60 analytical groups; these are inferred sites, never TfC IDs.
+The final six survey dates (27 October–5 November 2024) form a frozen joint future-date/unseen-site
+holdout: 1,207 rows from ten inferred sites, with no site overlap with the 5,255-row training set.
+Five-fold grouped validation stays inside training. Because each directional segment occurs on one
+date only, date and site effects cannot be separated.
 
-## Observed results
+The lowest measurement-free holdout point estimate is histogram gradient boosting with combined
+time/static spatial features: MAE 348.25 (95% site-bootstrap interval 239.46–487.46) and RMSE 496.34
+(309.46–654.29) vehicles per 20 minutes. Broad overlapping intervals preclude a superiority or
+significance claim. Online one-step persistence has MAE 63.93 and RMSE 144.04 on 1,170 exactly
+adjacent intervals, but it consumes the previous measured count and is therefore a different task.
 
-**Not yet available.** Run `urbantwin eo-fetch`, `urbantwin geo-train`, `urbantwin traffic-run` and `urbantwin report` locally, then replace this paragraph with measured findings and reference the result files.
+### Existing abstract SUMO experiment
 
-## Limitations and responsible interpretation
+The existing configured benchmark completed 198 logical SUMO requests (162 physical executions and
+36 validated cache hits) under SUMO 1.26.0. It compares fixed time, GA, PSO and equal-budget random
+search with paired held-out seeds on a synthetic one-junction network. Its demand, queues, time loss,
+throughput and modeled CO₂ are simulator-only and are not relabeled as observed Cairo performance.
 
-- One geographic AOI and block-based tests cannot establish cross-region generalization.
-- WorldCover-label agreement does not mean ground-truth classification accuracy.
-- The generated SUMO network is not Cairo geometry and demand is not observed demand; improvements are simulation-only.
-- The 2021 EO labels, composited optical scenes and contemporary OSM network differ in temporal origin.
-- Completed-trip waiting times must be interpreted alongside generated, inserted, completed, unfinished, and pending-to-insert counts to avoid survivorship bias.
-- Simulator-estimated CO₂ depends on the recorded SUMO/HBEFA emissions-class assumption and is not measured Cairo air pollution.
-- The project does not derive or verify a causal relationship between satellite land cover and intersection signal performance.
+## Why measured-demand SUMO was not run
+
+TfC provides directional link totals, not intersection turning movements. The files contain no
+complete routes, signal/controller IDs, observed phase states or timing, lane-level demand,
+pedestrian operation, queues, speeds or travel times. The selected observed link is the 6th of
+October Bridge motorway pair rather than a verified signalized junction. One link count cannot
+identify a complete turning-demand matrix. The scientific gate therefore blocks controller
+calibration, GA/PSO comparisons on Cairo geometry and any real-world improvement claim.
+
+## Provenance, licensing and ethics
+
+- Count archive SHA-256: `d90703a022b2cad08e0533a4d9538236e45034c2fe260673a08c6995a56bbd7b`.
+- Survey-location archive SHA-256: `d8b8e329be14b2c008460e7caed55c3dc820dc151119f4d0d37fa4a6070b42b1`.
+- Current observed MLflow run: `108df19c55d445ea8e53b0c85abbb4ce` in
+  `UrbanTwin-Observed-Traffic`.
+- TfC attribution is recorded, but its portal supplied no explicit license identifier. Source and
+  row-level derived records remain Git-ignored pending written reuse terms.
+- The release contains aggregate link counts, not identifiable trajectories. Results must not be
+  used for automated enforcement, neighborhood ranking or controller deployment.
+- EO/road descriptors are descriptive associations. No causal land-use effect is inferred.
+
+The detailed data, split, model, uncertainty and reproduction record is in
+[observed_traffic_case_study.md](observed_traffic_case_study.md); source feasibility and legal gaps
+are in [real_data_feasibility.md](real_data_feasibility.md).
 
 ## Reproducibility
 
-The README supplies exact Windows PowerShell commands. Outputs preserve the exact `data_kind` labels `real`, `synthetic`, `simulation_abstract`, or `simulation_external_user_network`. Generated reports reject stale or mismatched metrics and write a SHA-256 provenance sidecar. The `demo` command uses synthetic fixtures and must not be cited as empirical evidence.
-
-## Research relevance
-
-- **SMACCs:** Mobility simulation, sustainability, interpretable limitations.
-- **Copernicus Digital Earth / GeoTech:** EO/GIS processing, CRS, spectral indices, provenance and validation.
-- **AISS:** Urban sustainability and responsible use of models.
-- **Toulouse / Lille:** Algorithms, statistical evaluation, experimental comparability, ML ablations.
+The README provides exact Windows PowerShell 5.1/Python 3.12 commands. Local artifacts are hash-bound
+and strictly validated before dashboard display, PDF generation or MLflow logging. The dashboard
+keeps observed EO, observed traffic, blocked measured-demand simulation and abstract simulation in
+separate sections. Notebooks are output-free and reject missing or mismatched local evidence.

@@ -12,6 +12,7 @@ __pycache__/
 # Downloaded raster assets and local model caches can be large.
 data/real/
 data/synthetic/
+data/observed/
 data/osm/
 data/sumo/
 # Ignore all generated experiment outputs by default.
@@ -24,6 +25,10 @@ reports/generated_*.pdf
 reports/generated_*.provenance.json
 reports/methodology_draft.pdf
 reports/methodology_draft.provenance.json
+# Local measured-data report and visual QA renders stay untracked while TfC
+# redistribution terms are unspecified.
+output/pdf/
+tmp/pdfs/
 *.log
 # Optional MLflow defaults/customizations should remain local experiment state.
 /mlruns/

@@ -4,33 +4,40 @@
 
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB)](https://www.python.org/) [![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE) [![Evidence status](https://img.shields.io/badge/Research-evaluation%20required-orange)](#research-status-and-honesty)
 
-> **Research question:** Can satellite-derived land-cover information and controlled AI-based traffic-signal optimization provide a reproducible framework for analyzing urban context and simulated mobility?
+> **Research question:** How can real Earth observation, measured directional traffic demand and reproducible counterfactual simulation be studied together without confusing measured, mapped, inferred and simulated evidence?
 
 **Author:** Roaa Raafat · B.Sc. Data Science & Artificial Intelligence · Zewail City of Science and Technology
 
 A modular research prototype integrating:
 
-- **Real geospatial context** around Tahrir Square, Cairo: Sentinel-2 L2A, ESA WorldCover 2021, OpenStreetMap road network, georeferenced maps, NDVI, NDBI.
+- **Real geospatial context** around Tahrir Square, Cairo: validated Sentinel-2 L2A 2021 and near-survey 2024 bundles, ESA WorldCover 2021 historic reference labels, georeferenced maps, NDVI and NDBI.
 - **ML evaluation:** Random Forest vs Histogram Gradient Boosting, spectral feature ablation, repeated grouped spatial splits, per-class confusion matrices, and explicit unsupported-class reporting **against WorldCover pseudo-labels**.
-- **Traffic experiments:** SUMO fixed-time control versus GA, PSO, and equal-budget random search for two main traffic-signal green phases. The same routes and paired held-out seeds are used across controllers.
+- **Measured traffic analysis:** actual TfC 2024 directional 20-minute link counts, lossless normalization, inferred-site grouping, frozen joint future-date/unseen-site evaluation and separate online persistence.
+- **Traffic simulation:** a completed, explicitly abstract SUMO fixed-time/GA/PSO/equal-budget random-search comparison. It is not observed Cairo demand.
 - **Visualization and research outputs:** Streamlit dashboard, plots, machine-readable provenance, research-report PDF generator.
 
 **IMPORTANT:** The default SUMO intersection is **abstract and synthetic**, **not a calibrated simulation of Tahrir Square**, and its traffic demand is generated independently of satellite imagery. The geospatial and mobility findings are adjacent research components, not a validated causal relationship. A SUMOFlow external network adapter is included only for compatible two-green-phase signal programs and matching prebuilt vehicle-route files.
 
 ## Research status and honesty
 
-| Component | Status in this initial repository | How to validate |
-|---|---|---|
-| Geospatial data ingestion | Implemented; requires internet to run | `urbantwin eo-fetch` |
-| QGIS-compatible projected raster metrics | Implemented; real-data execution pending | `urbantwin geo-train` |
-| OpenStreetMap road data | Implemented; network access required | `urbantwin roads` |
-| Repeated grouped WorldCover reference classification | Implemented and offline-tested on **synthetic fixtures** | Run on real Sentinel/WorldCover rasters |
-| SUMO network and demand generator | Implemented; installed SUMO executable required | `urbantwin traffic-run --quick` |
-| GA, PSO and equal-budget random-search optimization | Implemented; offline objective tests are not SUMO evidence | Test actual simulation and then run full budget |
-| Dashboard and report generator | Implemented; display outputs only if present | See commands below |
-| Validated Cairo real-world traffic improvement | **NOT CLAIMED** | Needs calibrated roads, demand and traffic counts |
+The primary-source audit is documented in [docs/real_data_feasibility.md](docs/real_data_feasibility.md); the executed measured study is documented in [docs/observed_traffic_case_study.md](docs/observed_traffic_case_study.md). TfC's public directional link counts and surveyed lines support observed-demand characterization and a bounded prediction prototype. They do **not** supply turning movements, complete routes or observed signal timing, so the measured-demand signal phase is deliberately **not run**.
 
-**There are no pre-filled experimental performance results** in the repository. Synthetic demo metrics are deliberately excluded from scholarship results. Do not cite the deterministic synthetic-demo scores as scientific findings. Live EO/OSM acquisition and a full-budget SUMO benchmark have not been executed for this release; rerun and review them locally before presenting any result. A low-budget quick smoke confirms software execution only, not performance.
+Validated measured-study outputs carry the explicit provenance label
+`real_observed_traffic_analysis`; this label is never applied to the separate synthetic SUMO
+experiment.
+
+| Component | Verified local status | How to validate |
+|---|---|---|
+| 2021 real EO and repeated grouped WorldCover agreement | Executed and provenance-valid locally | `urbantwin status` |
+| Near-survey 2024 Sentinel-2 context | Executed locally; WorldCover remains historic 2021 reference | `urbantwin observed-eo-fetch` for a new directory |
+| TfC measured traffic ingestion and benchmark | Executed: 6,618 intervals / 2,961,483 vehicles | `urbantwin observed-study --resume` |
+| Current OSM study-area context | Validated: 849 nodes / 1,788 directed edges; current third-party map context | Inspect `data/observed/osm/current_tahrir/road_manifest.json` |
+| Full abstract SUMO comparison | Executed: 198 logical requests / 162 physical runs / 36 cache hits; synthetic network/demand | `urbantwin status` |
+| Dashboard and observed research PDF | Executed locally from strictly validated artifacts | See commands below |
+| Measured-demand Cairo signal optimization | **NOT RUN — scientifically blocked** | Needs movements, routes and signal observations |
+| Calibrated Cairo digital twin / deployed controller | **NOT CLAIMED** | Requires independent calibration and validation |
+
+Generated experiment bundles are Git-ignored because they are machine-specific, may be large and may contain source-derived material whose redistribution is unresolved. The working copy can contain verified results without shipping them as pre-filled repository evidence. Synthetic demo scores remain software fixtures and must never be cited as scientific findings.
 
 ## Architecture
 
@@ -44,6 +51,12 @@ flowchart TB
       C --> ML[Spatial blocked holdout: RF / HistGB]
       F --> ML
     end
+    subgraph Observed[MEASURED TRAFFIC · TfC 2024]
+      D[Directional 20-minute class counts] --> I[Lossless validation / normalization]
+      G[TfC-released OSM-derived survey lines] --> J[Projected joins / inferred analytical sites]
+      I --> M[Grouped benchmark / characterization]
+      J --> M
+    end
     subgraph Sim[SIMULATED TRAFFIC · abstract cross-junction]
       N[Generated SUMO intersection + stochastic route demand] --> B[Fixed-time baseline]
       N --> GA[Genetic algorithm timing]
@@ -52,8 +65,9 @@ flowchart TB
       GA --> T
       PSO --> T
     end
-    R --> V[Separate panels: Urban Analytics Dashboard]
+    R --> V[Separate evidence panels: Research Dashboard]
     ML --> V
+    M --> V
     T --> V
     V --> P[Reproducibility metadata / Figures / PDF report]
 ```
@@ -103,7 +117,117 @@ urbantwin roads
 
 This downloads the driving-road network for the bounding box (not a historical snapshot), exports `data/osm/roads.geojson`, and reports road density in projected meters per km². Be respectful of Overpass request rate limits. OSM road metadata and WorldCover are not necessarily from the same year.
 
-**5. Install SUMO separately** (Python `traci` does **not** install the SUMO simulation executable).
+**5. Acquire and validate the official TfC files, then run the observed study.**
+
+The audited official records are [TfC Traffic Counts, record 190](https://data.transportforcairo.com/catalogue/#/document/190) and [TfC Traffic Survey Locations, record 193](https://data.transportforcairo.com/catalogue/#/dataset/193). TfC did not state an explicit reuse license on these records. The commands below keep source and derived row-level files under Git-ignored `data/observed/`; do not redistribute them until TfC confirms reuse terms.
+
+PowerShell 5.1 can download the two small official archives directly. For a manual browser download,
+open the two official record pages above, choose their download action, and save the files exactly as
+`data\observed\source\tfc_2024_traffic_counts.zip` and
+`data\observed\source\tfc_2024_traffic_survey_locations.zip`. These commands open the authoritative
+records rather than a third-party mirror:
+
+```powershell
+Start-Process "https://data.transportforcairo.com/catalogue/#/document/190"
+Start-Process "https://data.transportforcairo.com/catalogue/#/dataset/193"
+```
+
+For the verified anonymous-download path, use:
+
+```powershell
+$repo = (Resolve-Path ".").Path
+$sourceDir = Join-Path $repo "data\observed\source"
+New-Item -ItemType Directory -Force $sourceDir | Out-Null
+$counts = Join-Path $sourceDir "tfc_2024_traffic_counts.zip"
+$locations = Join-Path $sourceDir "tfc_2024_traffic_survey_locations.zip"
+
+Invoke-WebRequest -UseBasicParsing `
+  -Uri "https://data.transportforcairo.com/api/v2/assets/252/download" `
+  -OutFile $counts
+Invoke-WebRequest -UseBasicParsing `
+  -Uri "https://data.transportforcairo.com/api/v2/assets/255/download" `
+  -OutFile $locations
+$retrievedAtUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+
+(Get-FileHash -Algorithm SHA256 $counts).Hash.ToLower()
+# Expected: d90703a022b2cad08e0533a4d9538236e45034c2fe260673a08c6995a56bbd7b
+(Get-FileHash -Algorithm SHA256 $locations).Hash.ToLower()
+# Expected: d8b8e329be14b2c008460e7caed55c3dc820dc151119f4d0d37fa4a6070b42b1
+
+urbantwin observed-data-audit --counts $counts --locations $locations
+urbantwin observed-data-prepare `
+  --counts $counts `
+  --locations $locations `
+  --source-retrieved-at-utc $retrievedAtUtc
+```
+
+Preparation writes `data/observed/tfc/normalized_v1/` atomically and refuses to overwrite an inspected bundle. It preserves 6,618 interval rows, 79,416 class rows, missing values, undefined direction semantics, five OSM-ID conflicts and the source checksums. The released “60 locations” have no official location key; the analysis uses reproducible 250 m geometry connected components and labels all 60 groups as inferred.
+
+The independent current-OSM context already validated under
+`data/observed/osm/current_tahrir/` contains 849 nodes and 1,788 directed edges in EPSG:32636. It
+has three weak components; the largest contains 847 nodes (99.764%). Both selected AOI survey lines
+have reliable OSM-ID-plus-geometry matches. Their legal routing direction is still unverified because
+TfC does not define the semantics of direction codes `0` and `1`. The bundle is attributed to
+OpenStreetMap contributors under ODbL 1.0 and is current third-party map data, not a 2024 traffic
+measurement or a simulation-ready signal network.
+
+To reproduce that road bundle into a new, non-existing directory, use the bounded Overpass workflow
+below. It caches provider responses and refuses to overwrite prior evidence. If Overpass is
+unavailable, `--pbf` accepts an independently downloaded Geofabrik Egypt extract, but that fallback
+is deliberately labeled geometry-only rather than a routable graph.
+
+```powershell
+urbantwin observed-roads `
+  --output-dir "data\observed\osm\current_tahrir_reproduction"
+
+# Optional offline geometry-only fallback:
+urbantwin observed-roads `
+  --output-dir "data\observed\osm\geofabrik_geometry_reproduction" `
+  --pbf "D:\path\to\egypt-latest.osm.pbf"
+```
+
+Fetch the separate near-survey EO context and run the bounded study. `observed-eo-fetch` writes only to `data/observed/eo_2024/` and cannot replace `data/real/`. The three verified Sentinel-2 L2A scenes are dated 24 October, 29 October and 3 November 2024; WorldCover 2021 remains a historic reference product.
+
+```powershell
+urbantwin observed-eo-fetch
+python -m pip install -e ".[mlflow]"
+urbantwin observed-study --resume --mlflow
+urbantwin observed-report
+```
+
+The two observed-study notebooks are deliberately stored without outputs. Install the optional
+notebook environment and open them only after the validated local bundles above exist:
+
+```powershell
+python -m pip install -e ".[notebooks]"
+jupyter lab notebooks\03_observed_traffic_measurements.ipynb `
+  notebooks\04_observed_traffic_benchmark.ipynb
+```
+
+The frozen final split uses the last six survey dates and ten unseen inferred sites: 5,255 training
+rows from 50 inferred sites and 1,207 holdout rows, with zero site overlap. Five ambiguous OSM joins
+(156 rows) are excluded from the primary benchmark. Under the measurement-free information budget,
+combined-feature histogram gradient boosting has the lowest MAE point estimate: 348.25 vehicles per
+20 minutes (95% site-bootstrap interval 239.46–487.46), with RMSE 496.34 (309.46–654.29).
+Online persistence is evaluated on 1,170 exactly adjacent intervals and has MAE 63.93 and RMSE 144.04,
+but it consumes the preceding measured count. It is therefore a different online task, not a fair
+head-to-head baseline. The compatible local MLflow record is experiment
+`UrbanTwin-Observed-Traffic`, run `108df19c55d445ea8e53b0c85abbb4ce`.
+
+Local observed-study storage is deliberately separate:
+
+- official downloads and normalized tables: `data/observed/`;
+- near-survey EO: `data/observed/eo_2024/`;
+- validated observed outputs: `results/observed_traffic/`;
+- observed PDF and hash sidecar: `output/pdf/`;
+- optional SQLite tracking and artifacts: `.urbantwin/mlflow/`.
+
+The measured-demand SUMO phase is **NOT RUN**. Although the current road graph and both selected
+line matches are valid for GIS context, link counts do not identify routing direction, turning
+movements, complete routes, signal phases/timing, pedestrians or driver parameters, and the selected
+6th of October Bridge pair is not a verified signalized intersection.
+
+**6. Install SUMO separately** (Python `traci` does **not** install the SUMO simulation executable).
 
 Get Eclipse SUMO from https://eclipse.dev/sumo/ . Install Windows binaries, then make `sumo.exe` and `netconvert.exe` accessible on `PATH`, or set `SUMO_HOME` to the installation directory. Confirm:
 
@@ -112,7 +236,7 @@ sumo --version
 netconvert --version
 ```
 
-**6. Run a very small SUMO executable smoke test, then the full configured simulation.**
+**7. Run a very small SUMO executable smoke test, then the full configured simulation.**
 
 ```powershell
 urbantwin traffic-run --quick --resume
@@ -120,7 +244,7 @@ urbantwin traffic-run --quick --resume
 urbantwin traffic-run --resume
 ```
 
-The quick mode runs small optimizer populations and records its results **separately** in `results/traffic_quick/`; it is not a meaningful optimization study. With the checked-in configuration, a full run schedules 198 logical SUMO requests: `3 scenarios × (3 optimizers × 18 objective evaluations × 1 training seed + 4 methods × 3 evaluation seeds)`. Repeated integer plans can reduce the physical execution count through validated cache reuse, but never reduce an optimizer's declared evaluation budget. You can adjust population, generations and evaluation seeds in `configs/experiments.yaml`. Keep all tested methods, routes and split seeds consistent. The repository does not claim that the full benchmark has run merely because the quick smoke test succeeds.
+The quick mode runs small optimizer populations and records its results **separately** in `results/traffic_quick/`; it is not a meaningful optimization study. With the checked-in configuration, a full run schedules 198 logical SUMO requests: `3 scenarios × (3 optimizers × 18 objective evaluations × 1 training seed + 4 methods × 3 evaluation seeds)`. Repeated integer plans can reduce the physical execution count through validated cache reuse, but never reduce an optimizer's declared evaluation budget. You can adjust population, generations and evaluation seeds in `configs/experiments.yaml`. Keep all tested methods, routes and split seeds consistent. The verified local full run under SUMO 1.26.0 completed all 198 logical requests through 162 physical executions and 36 cache hits. Its ignored local artifacts remain the evidence; the quick smoke test alone never establishes completion or performance.
 
 Every successful unique SUMO simulation is saved atomically under `.urbantwin/checkpoints/traffic/`, independently of the final research tables in `results/traffic/`. Checkpoint identity binds the configuration, network, route, SUMO version, scenario, seed, signal plan, emissions settings and simulation settings. `--resume` reuses only complete, compatible, checksum-validated entries; missing, stale, corrupt or incompatible entries are recomputed. Pressing Ctrl+C may stop the current simulation, but it does not delete checkpoints already completed. Run the same command again with `--resume`. Progress is printed while the benchmark runs and identifies the scenario, method, objective-evaluation number, processed versus estimated SUMO requests, newly executed simulations, cache hits and elapsed time. Repeated integer plans can make the physical run count smaller than the estimate without changing any optimizer budget.
 
@@ -154,7 +278,7 @@ python -m pip install -e ".[mlflow]"
 urbantwin traffic-run --mlflow --resume
 ```
 
-The default tracking store is the local SQLite database `.urbantwin/mlflow/mlflow.db`, with local artifacts below `.urbantwin/mlflow/artifacts/`. Both locations are ignored by Git. Runs are organized in the `UrbanTwin-Traffic-Optimization` experiment as a benchmark parent with scenario and method children; individual SUMO executions are not turned into thousands of MLflow runs. The authoritative recovery mechanism remains `.urbantwin/checkpoints/traffic/`, and the authoritative final bundle remains the provenance-checked files in `results/traffic/`. MLflow records only validated outputs and clearly labels modeled SUMO CO₂ as simulator-only—not observed environmental data.
+The default tracking store is the local SQLite database `.urbantwin/mlflow/mlflow.db`, with local artifacts below `.urbantwin/mlflow/artifacts/`. Both locations are ignored by Git. Abstract SUMO runs are organized in `UrbanTwin-Traffic-Optimization`; the measured study uses the separate `UrbanTwin-Observed-Traffic` experiment. The current compatible observed run is `108df19c55d445ea8e53b0c85abbb4ce`. Individual SUMO executions are not turned into thousands of MLflow runs. The authoritative recovery mechanism remains `.urbantwin/checkpoints/traffic/`, and the authoritative final bundles remain the provenance-checked local result files. MLflow records only validated outputs and clearly labels modeled SUMO CO₂ as simulator-only—not observed environmental data.
 
 To use another tracking server or database, pass its URI explicitly or set `MLFLOW_TRACKING_URI` before the command. The explicit CLI value takes precedence:
 
@@ -182,20 +306,29 @@ mlflow ui `
 
 Then visit `http://127.0.0.1:5000`. MLflow logging is post-computation and cannot replace or invalidate validated local SUMO results. If tracking fails, the command reports that failure explicitly while retaining the local checkpoints and final artifacts.
 
-**7. Display the dashboard and generate the report once real results exist.**
+**8. Display the separated evidence dashboard and generate provenance-checked reports.**
 
 ```powershell
 streamlit run src/urbantwin/visualization/dashboard.py
+urbantwin observed-report
 urbantwin report
 ```
 
-The PDF is saved as `reports/generated_research_report.pdf`. It accepts results only when metrics, detailed records, source data, configuration, timestamps, and recorded SHA-256 hashes agree. A matching `generated_research_report.provenance.json` records the exact inputs. If you want an **explicitly labeled methodology-only PDF** before running experiments:
+The dashboard keeps observed EO, observed traffic, the blocked measured-demand phase and abstract
+simulation in separate sections. The observed report is saved as
+`output/pdf/urbantwin_observed_traffic_study.pdf` with a matching provenance sidecar; it accepts only
+the strictly validated observed bundle. The separate abstract/GeoAI report is saved as
+`reports/generated_research_report.pdf` and also requires matching metrics, source data,
+configuration, timestamps and recorded SHA-256 hashes. If you want an **explicitly labeled
+methodology-only PDF** that consumes no experiment files:
 
 ```powershell
 urbantwin report --draft
 ```
 
-Draft mode never consumes experiment files, even if they are present. The repository includes an initial `reports/research_report.pdf` that identifies itself as methodology-only. Replace it with a measured and verified report before citing any numeric research findings.
+Draft mode never consumes experiment files, even if they are present. The tracked
+`reports/research_report.pdf` is a methodology-only historical artifact; use the generated observed
+report and its provenance sidecar when citing the measured study.
 
 ## Exact repository file layout
 
@@ -210,14 +343,25 @@ UrbanTwin-AI/
 ├── Makefile
 ├── configs/
 │   ├── study_area.yaml
-│   └── experiments.yaml
+│   ├── experiments.yaml
+│   ├── observed_eo_2024.yaml
+│   └── observed_traffic.yaml
 ├── src/urbantwin/
 │   ├── cli.py
 │   ├── common.py
 │   ├── data/
 │   │   ├── earth_observation.py
 │   │   ├── spatial_features.py
+│   │   ├── observed_traffic.py
+│   │   ├── observed_study.py
 │   │   └── demo.py
+│   ├── observed/
+│   │   ├── features.py
+│   │   ├── roads.py
+│   │   ├── benchmark.py
+│   │   ├── artifacts.py
+│   │   ├── mlflow_tracking.py
+│   │   └── report.py
 │   ├── geoai/
 │   │   ├── train.py
 │   │   └── evaluate.py
@@ -234,7 +378,13 @@ UrbanTwin-AI/
 │       └── report_writer.py
 ├── notebooks/
 │   ├── 01_geospatial_analysis.ipynb
-│   └── 02_experiment_results.ipynb
+│   ├── 02_experiment_results.ipynb
+│   ├── 03_observed_traffic_measurements.ipynb
+│   └── 04_observed_traffic_benchmark.ipynb
+├── docs/
+│   ├── real_data_feasibility.md
+│   ├── observed_traffic_case_study.md
+│   └── portfolio_summary.md
 ├── scripts/
 │   └── verify_release.py
 ├── results/
