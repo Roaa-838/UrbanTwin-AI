@@ -23,7 +23,7 @@ def test_dashboard_keeps_evidence_sections_and_validators_separate() -> None:
 
     for label in (
         "Observed EO",
-        "Observed TfC traffic",
+        "Measured Cairo traffic",
         "Measured-demand simulation",
         "Abstract simulation",
     ):
@@ -33,3 +33,11 @@ def test_dashboard_keeps_evidence_sections_and_validators_separate() -> None:
     assert "validate_traffic_artifacts" in source
     assert "scientifically blocked" in source
     assert "No traffic calibration" in source
+    assert "URBANTWIN_PUBLICATION_SAFE" in source
+    assert "Random forest/combined is selected from training CV" in source
+    assert "No model ranking, exact score, or holdout outcome is reproduced" in source
+    assert "EO variables are not included" in source
+    assert "Contains modified Copernicus Sentinel data 2024" in source
+    assert "© ESA WorldCover project 2021" in source
+    assert "Near-survey" not in source
+    assert "Retrospective Sentinel-2 context (2024)" in source

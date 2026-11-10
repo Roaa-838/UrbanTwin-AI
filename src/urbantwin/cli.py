@@ -17,6 +17,27 @@ EXPERIMENTS = ROOT / "configs/experiments.yaml"
 OBSERVED_CONFIG = ROOT / "configs/observed_traffic.yaml"
 OBSERVED_EO_CONFIG = ROOT / "configs/observed_eo_2024.yaml"
 
+_TFC_COUNTS_RECORD = "https://data.transportforcairo.com/catalogue/#/document/190"
+_TFC_LOCATIONS_RECORD = "https://data.transportforcairo.com/catalogue/#/dataset/193"
+
+
+def _require_observed_study_bundle(study_dir: Path) -> None:
+    """Fail closed with reproducible acquisition steps when private source data is absent."""
+    manifest = study_dir / "source_manifest.json"
+    if manifest.is_file():
+        return
+    raise FileNotFoundError(
+        "Verified TfC observed-data bundle is missing. No synthetic substitute is permitted. "
+        f"Expected: {manifest}. Required official records: Traffic Counts record 190 "
+        f"({_TFC_COUNTS_RECORD}) and Traffic Survey Locations record 193 "
+        f"({_TFC_LOCATIONS_RECORD}). Download them under the terms TfC granted you, then run "
+        "`urbantwin observed-data-audit --counts <COUNTS_FILE> --locations <LOCATIONS_FILE>` "
+        "followed by `urbantwin observed-data-prepare --counts <COUNTS_FILE> "
+        "--locations <LOCATIONS_FILE> --source-retrieved-at-utc "
+        "<ACTUAL_ISO_8601_UTC>`; see README.md section 'Acquire and validate the official "
+        "TfC files'."
+    )
+
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="UrbanTwin-AI reproducible research CLI")
@@ -127,6 +148,14 @@ def _parser() -> argparse.ArgumentParser:
     )
     observed_report.add_argument(
         "--study-output", type=Path, default=ROOT / "results/observed_traffic"
+    )
+    observed_report.add_argument(
+        "--publication-safe",
+        action="store_true",
+        help=(
+            "Build a methods-only PDF that omits TfC-derived rows, maps, tables, "
+            "and exact model results"
+        ),
     )
     geo = commands.add_parser(
         "geo-train", help="Run repeated grouped WorldCover agreement benchmarks"
@@ -452,6 +481,7 @@ def _run_observed_study(args: argparse.Namespace) -> None:
 
     if args.mlflow_tracking_uri and not args.mlflow:
         raise ValueError("--mlflow-tracking-uri requires --mlflow")
+    _require_observed_study_bundle(args.study_dir)
     if args.output_dir.exists() and args.resume:
         verified = validate_observed_artifacts(ROOT, args.output_dir, source_dir=args.study_dir)
         if verified is None:
@@ -522,6 +552,7 @@ def _run_observed_eo_fetch(args: argparse.Namespace) -> None:
 def _run_observed_roads(args: argparse.Namespace) -> None:
     from urbantwin.observed.roads import prepare_observed_roads
 
+    _require_observed_study_bundle(args.study_dir)
     manifest = prepare_observed_roads(
         args.study_dir,
         args.output_dir,
@@ -553,7 +584,12 @@ def _run_observed_roads(args: argparse.Namespace) -> None:
 def _run_observed_report(args: argparse.Namespace) -> None:
     from urbantwin.observed.report import make_observed_report
 
-    output = make_observed_report(ROOT, args.output, observed_output=args.study_output)
+    output = make_observed_report(
+        ROOT,
+        args.output,
+        observed_output=args.study_output,
+        publication_safe=args.publication_safe,
+    )
     print(output)
     print(output.with_suffix(".provenance.json"))
 

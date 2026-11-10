@@ -109,6 +109,7 @@ def _compatibility_record(verified: dict[str, Any]) -> dict[str, Any]:
         "source_manifest_sha256": provenance["source_manifest_sha256"],
         "config_sha256": provenance["config_sha256"],
         "split_manifest_sha256": provenance["split_manifest_sha256"],
+        "cv_split_manifest_sha256": provenance["cv_split_manifest_sha256"],
         "artifact_hashes": provenance["artifact_hashes"],
         "eo_context": provenance.get("eo_context"),
         "road_context": provenance.get("road_context"),
@@ -219,6 +220,14 @@ def track_observed_study(
                     "urbantwin.data_kind": "real_observed_traffic_analysis",
                     "urbantwin.simulation_status": "not_run_scientific_gate_failed",
                     "urbantwin.license_status": str(provenance["license"]["status"]),
+                    "urbantwin.permission_status": str(
+                        provenance["author_reported_permission"]["status"]
+                    ),
+                    "urbantwin.public_redistribution_status": str(
+                        provenance["author_reported_permission"][
+                            "public_redistribution_status"
+                        ]
+                    ),
                     "urbantwin.eo_role": (
                         "sentinel_2024_context_worldcover_2021_historic_reference"
                     ),
@@ -241,6 +250,7 @@ def track_observed_study(
             "source_manifest_sha256": provenance["source_manifest_sha256"],
             "config_sha256": provenance["config_sha256"],
             "split_manifest_sha256": provenance["split_manifest_sha256"],
+            "cv_split_manifest_sha256": provenance["cv_split_manifest_sha256"],
             "git_commit": provenance["git"]["commit"],
             "git_dirty": provenance["git"]["dirty"],
             "train_dates": split["train_dates"],
@@ -252,6 +262,19 @@ def track_observed_study(
             "excluded_ambiguous_rows": split["excluded_ambiguous_rows"],
             "inferred_site_definition": split["inferred_site_definition"],
             "license_status": provenance["license"]["status"],
+            "permission_status": provenance["author_reported_permission"]["status"],
+            "public_redistribution_status": provenance[
+                "author_reported_permission"
+            ]["public_redistribution_status"],
+            "selected_model": provenance["model_selection"]["model"],
+            "selected_feature_set": provenance["model_selection"]["feature_set"],
+            "selected_grouped_cv_mean_mae": provenance["model_selection"]["mean_mae"],
+            "lowest_holdout_point_model": provenance[
+                "lowest_observed_holdout_point_estimate"
+            ]["model"],
+            "lowest_holdout_point_feature_set": provenance[
+                "lowest_observed_holdout_point_estimate"
+            ]["feature_set"],
             "measured_demand_sumo": "not_run",
             "sumo_blockers": provenance["study_gate"]["blockers"],
         }
@@ -321,6 +344,7 @@ def track_observed_study(
             output / "observed_site_errors.csv",
             output / "historic_eo_context.json",
             output / "split_manifest.json",
+            output / "cv_split_manifest.json",
             output / "provenance.json",
             *(output / relative for relative in provenance["figure_files"]),
         ]

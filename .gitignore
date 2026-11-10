@@ -25,8 +25,8 @@ reports/generated_*.pdf
 reports/generated_*.provenance.json
 reports/methodology_draft.pdf
 reports/methodology_draft.provenance.json
-# Local measured-data report and visual QA renders stay untracked while TfC
-# redistribution terms are unspecified.
+# Local measured-data reports and visual QA renders stay untracked while the
+# exact scope of public redistribution rights remains unconfirmed.
 output/pdf/
 tmp/pdfs/
 *.log

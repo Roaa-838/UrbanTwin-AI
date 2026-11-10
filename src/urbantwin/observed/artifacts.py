@@ -1,6 +1,7 @@
 """Strict validation for the local measured-traffic research bundle."""
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -13,6 +14,11 @@ from urbantwin.common import require_real_provenance, sha256_file
 
 class ObservedArtifactIntegrityError(ValueError):
     """Raised when a measured-traffic result bundle is stale or inconsistent."""
+
+
+def _canonical_hash(value: Any) -> str:
+    payload = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _json_object(path: Path) -> dict[str, Any]:
@@ -70,7 +76,7 @@ def validate_observed_artifacts(
             f"Observed result directory is incomplete: {output}"
         )
     provenance = _json_object(provenance_path)
-    if provenance.get("schema_version") != "urbantwin.observed-benchmark/v1":
+    if provenance.get("schema_version") != "urbantwin.observed-benchmark/v2":
         raise ObservedArtifactIntegrityError("Observed provenance schema is incompatible")
     if provenance.get("data_kind") != "real_observed_traffic_analysis":
         raise ObservedArtifactIntegrityError("Observed results have the wrong data_kind")
@@ -86,6 +92,17 @@ def validate_observed_artifacts(
         raise ObservedArtifactIntegrityError("Observed traffic source label is missing")
     if labels.get("simulation") != "not run; scientific gate failed":
         raise ObservedArtifactIntegrityError("Observed results mislabel simulation status")
+    permission = provenance.get("author_reported_permission")
+    if not isinstance(permission, dict) or permission.get("status") != (
+        "author_reported_academic_research_reuse_authorized"
+    ):
+        raise ObservedArtifactIntegrityError(
+            "Observed provenance lacks the author-reported academic reuse permission status"
+        )
+    if permission.get("public_redistribution_status") != "requires_exact_written_terms":
+        raise ObservedArtifactIntegrityError(
+            "Observed provenance overstates public redistribution permission"
+        )
 
     configuration = provenance.get("configuration")
     configured_road_directory = None
@@ -219,8 +236,23 @@ def validate_observed_artifacts(
     source_manifest = _json_object(source_manifest_path)
     if source_manifest.get("data_kind") != "real_observed_traffic":
         raise ObservedArtifactIntegrityError("Normalized source is not real observed traffic")
-    if ((source_manifest.get("license") or {}).get("redistribution_permitted")) is not False:
+    portal_license = source_manifest.get("license") or {}
+    if portal_license.get("status") != "unspecified_by_publisher":
+        raise ObservedArtifactIntegrityError(
+            "Observed portal license status is not the audited unspecified status"
+        )
+    if portal_license.get("redistribution_permitted") is not False:
         raise ObservedArtifactIntegrityError("Unexpected observed-data redistribution claim")
+    if provenance.get("portal_license") != source_manifest.get("license"):
+        raise ObservedArtifactIntegrityError(
+            "Observed provenance does not preserve the portal license metadata"
+        )
+    if provenance.get("license") != source_manifest.get("license"):
+        raise ObservedArtifactIntegrityError("Legacy observed license field changed")
+    if not isinstance(configuration, dict) or configuration.get("permission") != permission:
+        raise ObservedArtifactIntegrityError(
+            "Observed permission provenance disagrees with the frozen configuration"
+        )
     if (
         ((source_manifest.get("sources") or {}).get("counts") or {}).get("sha256")
         != provenance.get("source_counts_sha256")
@@ -249,6 +281,7 @@ def validate_observed_artifacts(
     required_files = {
         "observed_metrics.csv",
         "observed_cv_metrics.csv",
+        "observed_cv_predictions.csv",
         "observed_predictions.csv",
         "observed_site_errors.csv",
         "observed_vehicle_classes.csv",
@@ -256,6 +289,7 @@ def validate_observed_artifacts(
         "segment_features.geojson",
         "historic_eo_context.json",
         "split_manifest.json",
+        "cv_split_manifest.json",
     }
     missing_hashes = sorted(required_files - set(artifact_hashes))
     if missing_hashes:
@@ -278,9 +312,59 @@ def validate_observed_artifacts(
     if max(train_dates) >= min(test_dates):
         raise ObservedArtifactIntegrityError("Observed final dates are not chronological")
 
+    cv_split_path = output / "cv_split_manifest.json"
+    cv_split_manifest = _json_object(cv_split_path)
+    if sha256_file(cv_split_path) != provenance.get("cv_split_manifest_sha256"):
+        raise ObservedArtifactIntegrityError("Observed grouped-CV split manifest hash mismatch")
+    if cv_split_manifest.get("schema_version") != "urbantwin.observed-cv-split/v1":
+        raise ObservedArtifactIntegrityError("Observed grouped-CV split schema is incompatible")
+    if cv_split_manifest.get("protocol") != "training_only_five_fold_grouped_oof":
+        raise ObservedArtifactIntegrityError("Observed grouped-CV protocol is mislabeled")
+    if (
+        cv_split_manifest.get("group_key") != "inferred_site_id"
+        or cv_split_manifest.get("n_splits") != 5
+        or cv_split_manifest.get("training_rows") != split_manifest.get("train_rows")
+        or cv_split_manifest.get("training_inferred_sites")
+        != split_manifest.get("train_inferred_sites")
+        or cv_split_manifest.get("training_observation_ids_sha256")
+        != split_manifest.get("training_observation_ids_sha256")
+    ):
+        raise ObservedArtifactIntegrityError(
+            "Observed grouped-CV manifest disagrees with the frozen training partition"
+        )
+    folds = cv_split_manifest.get("folds")
+    if not isinstance(folds, list) or {fold.get("fold") for fold in folds} != {1, 2, 3, 4, 5}:
+        raise ObservedArtifactIntegrityError("Observed grouped-CV manifest lacks five folds")
+    if any(fold.get("site_overlap") != [] for fold in folds):
+        raise ObservedArtifactIntegrityError("Observed grouped-CV manifest contains site leakage")
+    training_rows = int(split_manifest["train_rows"])
+    training_sites = int(split_manifest["train_inferred_sites"])
+    for fold in folds:
+        if (
+            int(fold.get("fit_rows", -1)) + int(fold.get("validation_rows", -1))
+            != training_rows
+            or int(fold.get("fit_inferred_sites", -1))
+            + int(fold.get("validation_inferred_sites", -1))
+            != training_sites
+        ):
+            raise ObservedArtifactIntegrityError(
+                "Observed grouped-CV fold sizes disagree with the training partition"
+            )
+    for key in (
+        "source_manifest_sha256",
+        "source_counts_sha256",
+        "source_locations_sha256",
+        "config_sha256",
+    ):
+        if cv_split_manifest.get(key) != provenance.get(key):
+            raise ObservedArtifactIntegrityError(
+                f"Observed grouped-CV manifest disagrees on {key}"
+            )
+
     paths = {
         "metrics": output / "observed_metrics.csv",
         "cv_metrics": output / "observed_cv_metrics.csv",
+        "cv_predictions": output / "observed_cv_predictions.csv",
         "predictions": output / "observed_predictions.csv",
         "site_errors": output / "observed_site_errors.csv",
         "vehicle_classes": output / "observed_vehicle_classes.csv",
@@ -362,13 +446,175 @@ def validate_observed_artifacts(
                 f"Prediction row count disagrees for {row.model}/{row.feature_set}"
             )
 
+    cv_metrics = values["cv_metrics"]
     _require_columns(
-        values["cv_metrics"],
-        {"fold", "model", "feature_set", "validation_inferred_sites", "mae", "rmse"},
+        cv_metrics,
+        {
+            "fold",
+            "model",
+            "feature_set",
+            "information_budget",
+            "train_rows",
+            "validation_rows",
+            "train_inferred_sites",
+            "validation_inferred_sites",
+            "mae",
+            "rmse",
+        },
         paths["cv_metrics"],
     )
-    if set(pd.to_numeric(values["cv_metrics"]["fold"], errors="coerce")) != {1, 2, 3, 4, 5}:
+    if set(pd.to_numeric(cv_metrics["fold"], errors="coerce")) != {1, 2, 3, 4, 5}:
         raise ObservedArtifactIntegrityError("Observed development metrics lack five grouped folds")
+    if cv_metrics.duplicated(["fold", "model", "feature_set"]).any():
+        raise ObservedArtifactIntegrityError("Observed grouped-CV metrics are duplicated")
+    if set(cv_metrics["information_budget"]) != {"measurement_free_estimation"}:
+        raise ObservedArtifactIntegrityError("Observed grouped-CV information budget is invalid")
+
+    selection = provenance.get("model_selection")
+    if not isinstance(selection, dict):
+        raise ObservedArtifactIntegrityError("Observed provenance has no model-selection record")
+    if (
+        selection.get("selection_partition") != "training_only"
+        or selection.get("selection_protocol")
+        != "five_fold_grouped_cv_by_inferred_site"
+        or selection.get("holdout_scores_used_for_selection") is not False
+    ):
+        raise ObservedArtifactIntegrityError(
+            "Observed model selection is not confined to training-only grouped CV"
+        )
+    if split_manifest.get("model_selection") != selection or cv_split_manifest.get(
+        "model_selection"
+    ) != selection:
+        raise ObservedArtifactIntegrityError("Observed model-selection records disagree")
+    cv_summary = (
+        cv_metrics.groupby(["model", "feature_set"], observed=True, as_index=False)
+        .agg(mean_mae=("mae", "mean"), mean_rmse=("rmse", "mean"))
+        .sort_values(
+            ["mean_mae", "mean_rmse", "model", "feature_set"],
+            kind="mergesort",
+        )
+        .reset_index(drop=True)
+    )
+    selected = cv_summary.iloc[0]
+    if (
+        selection.get("model") != selected["model"]
+        or selection.get("feature_set") != selected["feature_set"]
+        or not math.isclose(float(selection.get("mean_mae", math.nan)), selected["mean_mae"])
+        or not math.isclose(float(selection.get("mean_rmse", math.nan)), selected["mean_rmse"])
+        or selection.get("candidate_count") != len(cv_summary)
+    ):
+        raise ObservedArtifactIntegrityError(
+            "Observed selected model does not match training-only grouped-CV ranking"
+        )
+
+    lowest_record = provenance.get("lowest_observed_holdout_point_estimate")
+    if not isinstance(lowest_record, dict) or lowest_record.get("selection_role") != (
+        "descriptive_only_not_used_for_model_selection"
+    ):
+        raise ObservedArtifactIntegrityError(
+            "Observed lowest holdout point estimate is not labeled descriptive-only"
+        )
+    if split_manifest.get("lowest_observed_holdout_point_estimate") != lowest_record:
+        raise ObservedArtifactIntegrityError("Observed lowest holdout records disagree")
+    lowest = measurement_free.sort_values(
+        ["mae", "rmse", "model", "feature_set"], kind="mergesort"
+    ).iloc[0]
+    if (
+        lowest_record.get("model") != lowest["model"]
+        or lowest_record.get("feature_set") != lowest["feature_set"]
+        or not math.isclose(float(lowest_record.get("mae", math.nan)), lowest["mae"])
+        or not math.isclose(float(lowest_record.get("rmse", math.nan)), lowest["rmse"])
+    ):
+        raise ObservedArtifactIntegrityError(
+            "Observed descriptive holdout record disagrees with frozen metrics"
+        )
+
+    cv_predictions = values["cv_predictions"]
+    _require_columns(
+        cv_predictions,
+        {
+            "fold",
+            "observation_id",
+            "inferred_site_id",
+            "model",
+            "feature_set",
+            "protocol",
+            "information_budget",
+            "observed_vehicle_total",
+            "prediction",
+        },
+        paths["cv_predictions"],
+    )
+    _finite_nonnegative(
+        cv_predictions,
+        ["observed_vehicle_total", "prediction"],
+        paths["cv_predictions"],
+    )
+    if set(cv_predictions["protocol"]) != {"training_only_five_fold_grouped_oof"}:
+        raise ObservedArtifactIntegrityError("Observed OOF predictions use the wrong protocol")
+    if set(cv_predictions["information_budget"]) != {"measurement_free_estimation"}:
+        raise ObservedArtifactIntegrityError("Observed OOF information budget is invalid")
+    cv_predictions["fold"] = pd.to_numeric(cv_predictions["fold"], errors="coerce")
+    if set(cv_predictions["fold"]) != {1, 2, 3, 4, 5}:
+        raise ObservedArtifactIntegrityError("Observed OOF predictions lack five folds")
+    if cv_predictions.duplicated(["fold", "model", "feature_set", "observation_id"]).any():
+        raise ObservedArtifactIntegrityError("Observed OOF predictions contain duplicates")
+    expected_training_rows = int(split_manifest["train_rows"])
+    specifications = set(
+        zip(cv_metrics["model"].astype(str), cv_metrics["feature_set"].astype(str))
+    )
+    for model, feature_set in specifications:
+        subset = cv_predictions.loc[
+            (cv_predictions["model"] == model)
+            & (cv_predictions["feature_set"] == feature_set)
+        ]
+        if len(subset) != expected_training_rows or subset["observation_id"].nunique() != (
+            expected_training_rows
+        ):
+            raise ObservedArtifactIntegrityError(
+                f"Observed OOF coverage is incomplete for {model}/{feature_set}"
+            )
+        if _canonical_hash(sorted(subset["observation_id"].astype(str))) != split_manifest.get(
+            "training_observation_ids_sha256"
+        ):
+            raise ObservedArtifactIntegrityError(
+                f"Observed OOF membership is mismatched for {model}/{feature_set}"
+            )
+    for row in cv_metrics.itertuples(index=False):
+        count = len(
+            cv_predictions.loc[
+                (cv_predictions["fold"] == int(row.fold))
+                & (cv_predictions["model"] == row.model)
+                & (cv_predictions["feature_set"] == row.feature_set)
+            ]
+        )
+        if count != int(row.validation_rows):
+            raise ObservedArtifactIntegrityError(
+                f"Observed OOF row count disagrees for fold {row.fold} "
+                f"{row.model}/{row.feature_set}"
+            )
+    reference_model, reference_features = min(specifications)
+    reference = cv_predictions.loc[
+        (cv_predictions["model"] == reference_model)
+        & (cv_predictions["feature_set"] == reference_features)
+    ]
+    for fold_record in folds:
+        fold = int(fold_record["fold"])
+        validation = reference.loc[reference["fold"] == fold]
+        fit = reference.loc[reference["fold"] != fold]
+        if (
+            _canonical_hash(sorted(validation["observation_id"].astype(str)))
+            != fold_record.get("validation_observation_ids_sha256")
+            or _canonical_hash(sorted(fit["observation_id"].astype(str)))
+            != fold_record.get("fit_observation_ids_sha256")
+            or _canonical_hash(sorted(validation["inferred_site_id"].astype(str).unique()))
+            != fold_record.get("validation_inferred_site_ids_sha256")
+            or _canonical_hash(sorted(fit["inferred_site_id"].astype(str).unique()))
+            != fold_record.get("fit_inferred_site_ids_sha256")
+        ):
+            raise ObservedArtifactIntegrityError(
+                f"Observed OOF membership disagrees with grouped-CV fold {fold}"
+            )
     _require_columns(
         values["vehicle_classes"],
         {"vehicle_class", "observed_vehicles", "share_of_observed_vehicles"},
@@ -380,6 +626,7 @@ def validate_observed_artifacts(
         **values,
         "provenance": provenance,
         "split_manifest": split_manifest,
+        "cv_split_manifest": cv_split_manifest,
         "source_manifest": source_manifest,
         "output_dir": output,
         "hashes": dict(artifact_hashes),

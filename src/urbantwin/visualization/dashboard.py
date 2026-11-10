@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,11 @@ ROOT = Path(__file__).resolve().parents[3]
 OBSERVED_OUTPUT = ROOT / "results/observed_traffic"
 OBSERVED_SOURCE = ROOT / "data/observed/tfc/normalized_v1"
 OBSERVED_ROADS = ROOT / "data/observed/osm/current_tahrir"
+PUBLICATION_SAFE = os.environ.get("URBANTWIN_PUBLICATION_SAFE", "1").strip().lower() not in {
+    "0",
+    "false",
+    "no",
+}
 COLORS = {
     10: [0, 100, 0],
     20: [255, 187, 34],
@@ -163,8 +169,11 @@ def _render_eo_map(labels: np.ndarray, provenance: dict[str, Any]) -> None:
             alt="Tahrir-area WorldCover 2021 reference classes on a geographic basemap",
         )
         st.caption(
-            "Basemap © OpenStreetMap contributors and CARTO. WorldCover colors are an "
-            "approximate display of the 2021 categorical reference product."
+            "Basemap © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright) "
+            "and CARTO. WorldCover colors are an "
+            "approximate display of the 2021 categorical reference product. "
+            "© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data "
+            "(2021) processed by ESA WorldCover consortium (CC BY 4.0)."
         )
     except Exception as exc:  # noqa: BLE001 - optional map failure stays within this panel
         st.warning(f"Map rendering unavailable: {exc}", icon=":material/map:")
@@ -175,18 +184,19 @@ def _observed_eo_section() -> None:
     st.badge("Real remote sensing", color="green", icon=":material/verified:")
     st.caption(
         "Real Sentinel-2 L2A surface reflectance covers the configured Tahrir-area AOI. "
-        "ESA WorldCover 2021 remains a historic reference product, not 2024 ground truth."
+        "Contains modified Copernicus Sentinel data 2024. ESA WorldCover 2021 remains a "
+        "historic reference product, not 2024 ground truth."
     )
     raster_choice = st.segmented_control(
         "EO bundle",
-        ["Near-survey Sentinel-2 (2024)", "Historic GeoAI bundle (2021)"],
-        default="Near-survey Sentinel-2 (2024)",
+        ["Retrospective Sentinel-2 context (2024)", "Historic GeoAI bundle (2021)"],
+        default="Retrospective Sentinel-2 context (2024)",
         key="eo_bundle",
         width="stretch",
     )
     raster_path = (
         ROOT / "data/observed/eo_2024"
-        if raster_choice.startswith("Near-survey")
+        if raster_choice.startswith("Retrospective")
         else ROOT / "data/real"
     )
     try:
@@ -263,14 +273,16 @@ def _observed_eo_section() -> None:
         )
 
     observed = _load_verified_observed()
-    if observed is not None:
+    if observed is not None and not PUBLICATION_SAFE:
         context_path = Path(observed["output_dir"]) / "historic_eo_context.json"
         context = pd.DataFrame(json.loads(context_path.read_text(encoding="utf-8")))
         st.subheader("Selected observed-link context")
         st.caption(
             "Buffers around the selected 6th of October Bridge links use real Sentinel-2 L2A "
-            "scenes from 24 October to 3 November 2024. WorldCover 2021 remains historic; "
-            "these descriptors are not causal traffic predictors."
+            "scenes from 24 October to 3 November 2024. The 3 November scene postdates the "
+            "31 October traffic survey and is retrospective context. WorldCover 2021 remains "
+            "historic; EO is absent from the multi-site prediction benchmark and these descriptors "
+            "are not causal traffic predictors."
         )
         st.dataframe(
             context[
@@ -285,12 +297,12 @@ def _observed_eo_section() -> None:
             ],
             width="stretch",
             hide_index=True,
-            alt="Near-survey 2024 Sentinel and historic WorldCover summaries for selected links",
+            alt="Retrospective 2024 Sentinel and historic WorldCover summaries for selected links",
         )
 
 
 def _observed_traffic_section() -> None:
-    st.header("Observed TfC traffic", icon=":material/traffic:")
+    st.header("Measured Cairo traffic", icon=":material/traffic:")
     st.badge("Measured directional link counts", color="green", icon=":material/verified:")
     bundle = _load_verified_observed()
     if bundle is None:
@@ -309,40 +321,107 @@ def _observed_traffic_section() -> None:
         "OSM-derived survey lines from a 2026 extract."
     )
     st.warning(
-        "TfC attribution is recorded, but the portal did not state an explicit reuse license. "
-        "Row-level data and derived artifacts remain local and untracked.",
+        "The project author reports direct TfC permission for academic research and data reuse. "
+        "This is not an open license, and public redistribution of source files or derived "
+        "materials is not assumed beyond the exact written terms.",
+        title="Permission scope",
         icon=":material/license:",
     )
-    summary = st.columns(4)
-    summary[0].metric("Measured intervals", "6,618")
-    summary[1].metric("Observed vehicles", "2,961,483")
-    summary[2].metric("Inferred site groups", "60")
-    summary[3].metric("License", str(license_record["status"]).replace("_", " "))
+    if not PUBLICATION_SAFE:
+        summary = st.columns(4)
+        summary[0].metric(
+            "Measured intervals",
+            f"{int(bundle['source_manifest']['row_counts']['counts_wide']):,}",
+        )
+        summary[1].metric(
+            "Observed vehicles",
+            f"{int(bundle['vehicle_classes']['observed_vehicles'].sum()):,}",
+        )
+        summary[2].metric(
+            "Inferred site groups",
+            str(int(split["train_inferred_sites"]) + int(split["test_inferred_sites"])),
+        )
+        summary[3].metric("Portal license", str(license_record["status"]).replace("_", " "))
 
     with st.container(border=True):
-        st.subheader("Frozen evaluation protocol")
-        st.markdown(
-            f"Training uses **{split['train_rows']:,}** eligible intervals from "
-            f"**{split['train_inferred_sites']}** inferred sites. The frozen holdout uses "
-            f"**{split['test_rows']:,}** intervals from **{split['test_inferred_sites']}** "
-            "unseen inferred sites."
-        )
+        st.subheader("Joint evaluation protocol")
+        if PUBLICATION_SAFE:
+            st.markdown(
+                "Development uses training-only grouped cross-validation. The final holdout "
+                "combines later survey dates with unseen inferred sites."
+            )
+        else:
+            st.markdown(
+                f"Training uses **{split['train_rows']:,}** eligible intervals from "
+                f"**{split['train_inferred_sites']}** inferred sites. The frozen holdout uses "
+                f"**{split['test_rows']:,}** intervals from **{split['test_inferred_sites']}** "
+                "unseen inferred sites."
+            )
         st.warning(str(split["warning"]), icon=":material/warning:")
         st.caption(
-            f"{split['excluded_ambiguous_rows']} rows attached to five conflicting OSM joins "
-            "were excluded from the primary spatial benchmark, but retained in descriptive totals."
+            "Each directional segment was observed on one date, so date and site effects are "
+            "confounded. This is one joint shift, not independent temporal and geographic "
+            "validation. Static road attributes use TfC-released OSM-derived 2026 geometry."
         )
+
+    if PUBLICATION_SAFE:
+        st.info(
+            "Publication-safe mode omits TfC-derived totals, maps, site/class tables, and exact "
+            "model results. Set `URBANTWIN_PUBLICATION_SAFE=0` only for authorized private review "
+            "after checking the exact written permission terms.",
+            title="Methods-only public view",
+            icon=":material/visibility_off:",
+        )
+        st.caption(
+            "Training-only grouped cross-validation selects the specification before the final "
+            "holdout is examined. No model ranking, exact score, or holdout outcome is reproduced "
+            "in this public methods-only view. EO is not a benchmark feature and no EO accuracy "
+            "gain is claimed."
+        )
+        return
 
     metrics = bundle["metrics"].copy()
     measurement_free = metrics.loc[
         metrics["information_budget"] == "measurement_free_estimation"
     ].sort_values("mae")
     persistence = metrics.loc[metrics["model"] == "persistence"]
+    cv_summary = (
+        bundle["cv_metrics"]
+        .groupby(["model", "feature_set"], as_index=False)["mae"]
+        .mean()
+        .sort_values("mae", kind="stable")
+    )
+    cv_selected = cv_summary.iloc[0]
+    lowest_holdout = measurement_free.iloc[0]
     st.subheader("Measurement-free volume estimation")
     st.caption(
         "Models use clock/time and static released road-geometry attributes only. Current-period "
-        "counts, opposite-direction counts, IDs, names, exact dates and future rows are excluded."
+        "counts, opposite-direction counts, IDs, names, exact dates and future rows are excluded. "
+        "EO variables are not included."
     )
+    with st.container(border=True):
+        st.subheader("Selection protocol")
+        selection = pd.DataFrame(
+            [
+                {
+                    "Role": "Training-only grouped-CV selection",
+                    "Model": cv_selected["model"],
+                    "Features": cv_selected["feature_set"],
+                    "MAE": float(cv_selected["mae"]),
+                },
+                {
+                    "Role": "Lowest observed final-holdout point estimate",
+                    "Model": lowest_holdout["model"],
+                    "Features": lowest_holdout["feature_set"],
+                    "MAE": float(lowest_holdout["mae"]),
+                },
+            ]
+        )
+        st.table(selection, alt="Training selection and descriptive final-holdout comparison")
+        st.caption(
+            "Random forest/combined is selected from training CV. HistGB/combined's lower final "
+            "holdout point estimate is descriptive and is not a retrospective selection rule."
+        )
     display_columns = [
         "model",
         "feature_set",
@@ -470,7 +549,8 @@ def _measured_simulation_section() -> None:
             f"{float(connectivity['largest_component_node_fraction']):.1%}",
         )
         st.caption(
-            "Current map evidence: © OpenStreetMap contributors, ODbL 1.0. The selected "
+            "Current map evidence: © [OpenStreetMap contributors]"
+            "(https://www.openstreetmap.org/copyright), ODbL 1.0. The selected "
             "survey lines have projected geometry support, but TfC direction codes 0/1 have "
             "no published travel-direction legend. This graph is not a signal model."
         )
@@ -633,8 +713,8 @@ st.set_page_config(
 )
 st.title("UrbanTwin-AI research evidence", icon=":material/location_city:")
 st.caption(
-    "Earth observation, measured directional traffic demand and explicitly separate "
-    "counterfactual simulation evidence for Greater Cairo research."
+    "Measured Greater Cairo traffic, GIS and spatial feature engineering, retrospective Earth "
+    "observation context, and explicitly separate abstract simulation evidence."
 )
 st.info(
     "This is a research prototype, not a deployed traffic controller or a calibrated Cairo "
@@ -645,7 +725,7 @@ st.info(
 
 SECTIONS = [
     "Observed EO",
-    "Observed TfC traffic",
+    "Measured Cairo traffic",
     "Measured-demand simulation",
     "Abstract simulation",
 ]
@@ -659,7 +739,7 @@ section = st.segmented_control(
     wrap=True,
 )
 
-if section == "Observed TfC traffic":
+if section == "Measured Cairo traffic":
     _observed_traffic_section()
 elif section == "Measured-demand simulation":
     _measured_simulation_section()

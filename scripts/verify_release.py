@@ -40,6 +40,7 @@ EXPECTED = [
     "src/urbantwin/visualization/dashboard.py",
     "docs/real_data_feasibility.md",
     "docs/observed_traffic_case_study.md",
+    "docs/publication_scope.md",
     "docs/portfolio_summary.md",
     "notebooks/03_observed_traffic_measurements.ipynb",
     "notebooks/04_observed_traffic_benchmark.ipynb",

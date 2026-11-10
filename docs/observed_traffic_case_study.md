@@ -1,21 +1,21 @@
-# Earth Observation, Observed Traffic Demand and Counterfactual Signal Optimization in Greater Cairo
+# Measured Greater Cairo traffic: GIS, spatial features and retrospective Earth observation
 
-**Research prototype status:** the observed-traffic analysis and a near-survey 2024 Sentinel-2 context acquisition are complete locally. WorldCover 2021 remains a historic reference product. A measured-demand signal-control simulation was not run because the released evidence does not identify turning movements, signal phases, controller timing, or a complete route-demand matrix.
+**Research prototype status:** the observed-traffic analysis and a retrospective-context 2024 Sentinel-2 acquisition are complete locally. WorldCover 2021 remains a historic reference product. A measured-demand signal-control simulation was not run because the released evidence does not identify turning movements, signal phases, controller timing, or a complete route-demand matrix.
 
 ## Abstract
 
 This study tests how far a public Greater Cairo traffic-count release can support a reproducible urban-data workflow without overstating what was measured. Transport for Cairo (TfC) published 6,618 directional 20-minute records covering 142 directional segments on 30 survey dates between 21 July and 5 November 2024. The records contain counts for 12 vehicle classes and sum to 2,961,483 observed vehicles. TfC also released 145 directional survey-line geometries derived from a July 2026 OpenStreetMap extract.
 
-The implementation preserves the source fields and missing values, validates segment and direction joins, projects the released lines to EPSG:32636, and separates ambiguous OSM identifiers from reliable segment joins. A reproducible 250 m geometry-distance rule groups the 145 lines into 60 analytical site clusters, but these are explicitly **inferred groups**, not publisher location identifiers. A separately retrieved current OpenStreetMap drive graph supplies third-party road context for the Tahrir AOI; it does not supply 2024 observations, surveyed travel-direction semantics, or signal-control evidence. For directional volume estimation, the last six survey dates form a frozen joint future-date/unseen-site holdout. Models are developed using five-fold grouped validation on earlier inferred sites. The best measurement-free point estimate in the frozen holdout came from histogram gradient boosting with combined time and spatial features (MAE 348.25, 95% site-bootstrap interval 239.46-487.46; RMSE 496.34, interval 309.46-654.29 vehicles per 20 minutes). One-step persistence was much more accurate on exactly adjacent intervals (MAE 63.93), but it uses a previous measured count and is therefore a different, online information budget rather than a fair competitor to measurement-free estimation.
+The implementation preserves the source fields and missing values, validates segment and direction joins, projects the released lines to EPSG:32636, and separates ambiguous OSM identifiers from reliable segment joins. A reproducible 250 m geometry-distance rule groups the 145 lines into 60 analytical site clusters, but these are explicitly **inferred groups**, not publisher location identifiers. A separately retrieved current OpenStreetMap drive graph supplies third-party road context for the Tahrir AOI; it does not supply 2024 observations, surveyed travel-direction semantics, or signal-control evidence. For directional volume estimation, the last six survey dates form a frozen joint future-date/unseen-inferred-site holdout. Models are developed using five-fold grouped validation on earlier inferred sites. Training-only GroupKFold development ranked Random Forest with combined features first (mean CV MAE 283.42). Histogram gradient boosting with combined features had the lowest observed final-holdout measurement-free MAE point estimate (348.25, 95% site-bootstrap interval 239.46-487.46; RMSE 496.34, interval 309.46-654.29 vehicles per 20 minutes). This holdout comparison is descriptive, not retrospective model selection. One-step persistence was much more accurate on exactly adjacent intervals (MAE 63.93), but it uses a previous measured count and is therefore a different, online information budget rather than a fair competitor to measurement-free estimation.
 
-Three real Sentinel-2 Level-2A scenes acquired on 24 October, 29 October and 3 November 2024 provide descriptive near-survey context for the selected 6th of October Bridge links. ESA WorldCover 2021 remains a historic reference product rather than 2024 ground truth. EO descriptors are not used as causal evidence or as multi-site prediction features. Because the public release lacks turning movements and observed signal operation, the project stops before claiming a calibrated Cairo traffic simulation or controller benefit.
+Three real Sentinel-2 Level-2A scenes acquired on 24 October, 29 October and 3 November 2024 provide descriptive retrospective context for the selected 6th of October Bridge links. The 3 November scene postdates the 31 October traffic survey and was not available to a prospective forecast. ESA WorldCover 2021 remains a historic reference product rather than 2024 ground truth. EO descriptors are not used as causal evidence or as multi-site prediction features; no EO prediction gain was evaluated. Because the public release lacks turning movements and observed signal operation, the project stops before claiming a calibrated Cairo traffic simulation or controller benefit.
 
 ## Research questions
 
 1. Can the published TfC files be transformed into a lossless, provenance-bound table of directional 20-minute counts and mapped survey segments?
 2. How well can directional 20-minute total volume be estimated at future-date, unseen inferred sites from clock-time and static released road descriptors?
 3. How does measurement-free estimation compare descriptively with an online persistence forecast that has access to the immediately preceding observed interval?
-4. What near-survey spectral context and historic land-cover reference are visible around a predeclared observed link near the existing Tahrir AOI?
+4. What retrospective spectral context and historic land-cover reference are visible around a predeclared observed link near the existing Tahrir AOI?
 5. Do the available observations support a measured-demand signal-control SUMO study?
 
 The answer to question 5 is currently **no**. This is a scientific gate, not a missing software feature.
@@ -31,7 +31,7 @@ The primary measured inputs are the official TfC records established in the feas
 
 The validated count archive has SHA-256 `d90703a022b2cad08e0533a4d9538236e45034c2fe260673a08c6995a56bbd7b`; the location archive has SHA-256 `d8b8e329be14b2c008460e7caed55c3dc820dc151119f4d0d37fa4a6070b42b1`. The normalized bundle contains 6,618 wide interval rows and 79,416 long class-count rows. Its `data_kind` is `real_observed_traffic`.
 
-TfC names itself as the attribution party, but the portal record had no explicit license identifier or reuse terms at audit time. Raw files, row-level normalized data, derived measured maps, and the generated measured-results report therefore remain local and Git-ignored. Redistribution requires written clarification from TfC. Calling the portal data “open” is not treated as a substitute for a license.
+TfC names itself as the attribution party, and the portal record had no explicit license identifier or reuse terms at audit time. The project author subsequently reported receiving direct TfC permission to continue this academic research and reuse the data. This is authorization for the reported research use, not evidence that TfC placed the records under an open-source or open-data license. Because the exact permission text is stored privately and its public-redistribution scope has not been established in this repository, source files, row-level normalized data, derived measured maps and generated reports remain local and Git-ignored unless the recorded terms expressly permit a particular publication.
 
 The source does not provide a timezone, an interval-level sample-validity flag, or a legend mapping direction codes `0` and `1` to inbound/outbound. The pipeline records these facts as `unspecified_by_publisher`, `not_provided_by_source`, and undefined direction semantics instead of inventing values.
 
@@ -45,7 +45,7 @@ TfC direction codes `0` and `1` have no published travel-direction legend, so ne
 
 ### Earth observation
 
-The observed-study context bundle contains real Sentinel-2 L2A surface reflectance from 24 October, 29 October and 3 November 2024, bracketing the selected 31 October traffic survey. The three STAC item IDs and scene-level cloud metadata are retained in `data/observed/eo_2024/provenance.json`. Assets are SCL-masked and aligned to the same 10 m EPSG:32636 Tahrir grid used by the project. ESA WorldCover 2021 remains a historic categorical reference/pseudo-label product, not 2024 ground truth.
+The observed-study context bundle contains real Sentinel-2 L2A surface reflectance from 24 October, 29 October and 3 November 2024 around the selected 31 October traffic survey. The 3 November acquisition is post-survey retrospective context, not a feature that could have been available to a prospective 31 October forecast. The three STAC item IDs and scene-level cloud metadata are retained in `data/observed/eo_2024/provenance.json`. Assets are SCL-masked and aligned to the same 10 m EPSG:32636 Tahrir grid used by the project. ESA WorldCover 2021 remains a historic categorical reference/pseudo-label product, not 2024 ground truth.
 
 Only the selected Tahrir-area link pair has this consistently processed EO context. EO is therefore excluded from the 60-site prediction benchmark rather than being filled or extrapolated to unsampled sites.
 
@@ -69,7 +69,7 @@ IDs, road names, exact dates, current-period counts, opposite-direction counts, 
 
 The release states that observations came from 60 locations but contains no official physical `location_id`. To prevent paired or nearby lines leaking across spatial folds, the analysis connects released lines whose minimum EPSG:32636 geometry distance is at most 250 m and uses the connected components as analytical groups. This deterministic rule yields 60 groups: 46 with two lines, three with three, and 11 with four. The result is stable from 250 m through 750 m, but it remains an inference that TfC has not confirmed.
 
-The 6th of October Bridge pair was selected before model evaluation because it intersects the existing Tahrir AOI and has full-day, same-day coverage in both direction codes on 31 October 2024. Each direction has 72 intervals. Their measured totals are 107,028 and 69,206 vehicles. The site is suitable for directional link-flow and near-survey EO context. It is a motorway bridge, not a candidate signalized junction.
+The 6th of October Bridge pair was selected before model evaluation because it intersects the existing Tahrir AOI and has full-day, same-day coverage in both direction codes on 31 October 2024. Each direction has 72 intervals. Their measured totals are 107,028 and 69,206 vehicles. The site is suitable for directional link-flow and retrospective EO context. It is a motorway bridge, not a candidate signalized junction.
 
 ## Prediction task and evaluation design
 
@@ -107,16 +107,16 @@ All errors below are vehicles per directional 20-minute interval. Intervals are 
 | Measurement-free | Random Forest | combined | 1,207 | 366.41 (273.05-479.15) | 489.38 (327.67-611.34) | 406.38 |
 | Measurement-free | Histogram gradient boosting | time | 1,207 | 470.47 (291.69-673.36) | 633.38 (380.04-843.01) | 795.10 |
 | Measurement-free | Histogram gradient boosting | spatial | 1,207 | 397.30 (264.13-547.85) | 542.91 (339.84-713.39) | 490.48 |
-| Measurement-free | Histogram gradient boosting | combined | 1,207 | **348.25 (239.46-487.46)** | **496.34 (309.46-654.29)** | **385.66** |
+| Measurement-free | Histogram gradient boosting | combined | 1,207 | 348.25 (239.46-487.46) | 496.34 (309.46-654.29) | 385.66 |
 | Prior measurement available | Persistence | previous interval | 1,170 | 63.93 (30.89-110.54) | 144.04 (68.24-200.70) | 17.32 |
 
-The combined gradient-boosting configuration has the lowest measurement-free MAE point estimate. Its interval overlaps those of other measurement-free models, so the result is evidence of a useful prototype, not proof of superiority. The time-only models are close to the historical mean. Spatial and combined tree models have lower point estimates than their time-only versions, but this ablation does not isolate a causal spatial contribution: the static road descriptors may encode site composition, and date/site are confounded in the holdout.
+Training-only GroupKFold development ranked Random Forest with combined features first (mean CV MAE 283.42), which is the defensible training-based selection result. Histogram gradient boosting with combined features has the lowest observed measurement-free MAE point estimate in the final holdout. Its interval overlaps those of other measurement-free models, so that post-evaluation ordering is descriptive and is neither retrospective model selection nor proof of superiority. The time-only models are close to the historical mean. Spatial and combined tree models have lower holdout point estimates than their time-only versions, but this ablation does not isolate a causal spatial contribution: the 2026 static road descriptors may encode site composition, and date/site are confounded in the joint holdout. EO is not part of any benchmark feature set.
 
 Persistence is substantially more accurate on the 1,170 exactly adjacent test intervals. It is not a measurement-free baseline: it consumes a previous real observation at the same directional segment. It is reported separately to establish the difficulty and value of online measurement access, not as a direct win over the other estimators.
 
 The complete local bundle retains per-fold validation metrics, per-site errors, row-level predictions, mean bias, median absolute error, and vehicle-class composition. Cars account for 59.49% of the observed vehicle total, followed by mini/microbuses at 11.25%; these are descriptive shares of the released observations, not estimates of the Greater Cairo fleet.
 
-## Near-survey EO context at the selected link
+## Retrospective EO context at the selected link
 
 For 50 m, 100 m and 250 m buffers around the selected released bridge lines, valid-pixel coverage in the 2024 Sentinel composite was 100.00% for all three buffers. Mean NDVI was -0.106, -0.139 and -0.036; mean NDBI was 0.256, 0.249 and 0.157. WorldCover 2021 built-up fractions were 40.00%, 33.49% and 53.80%, while represented historic vegetated-class fractions were 0.00%, 0.00% and 0.47%.
 
@@ -132,14 +132,14 @@ Accordingly, this study does not construct an OSM-network signal scenario, infer
 
 ## Limitations and technical risks
 
-- TfC's explicit redistribution license remains unresolved.
+- TfC directly authorized the author-reported academic research and data reuse, but the portal still provides no open license and the exact permission must be checked before any public redistribution of source or derived material.
 - The published “60 locations” cannot be reconstructed from an official key; the 60 analytical groups are proximity-derived.
 - All directional segments were observed on only one date, confounding date and site in the final split.
 - Survey schedules are heterogeneous, and the source does not provide sample-validity flags or timezone.
 - Five OSM identifiers disagree between count and geometry records.
 - The released OSM-derived geometry is from 2026, two years after the counts.
 - The validated current OSM graph covers only the Tahrir AOI. Its two in-AOI survey lines match spatially, but routing direction remains unverified and no signal inventory, turning-flow validation, or 2024 network reconstruction is available.
-- Near-survey 2024 Sentinel context covers only the selected Tahrir-area link pair; WorldCover is from 2021, and neither can support a 60-site EO ablation.
+- Retrospective 2024 Sentinel context covers only the selected Tahrir-area link pair; WorldCover is from 2021, and neither can support a 60-site EO ablation.
 - Bootstrap intervals are based on only ten inferred holdout sites and are correspondingly broad.
 - The observed holdout is not a representative probability sample of all Greater Cairo roads or dates.
 
@@ -149,16 +149,13 @@ The release contains road-link aggregates rather than individual trajectories, b
 
 ## Reproducibility
 
-The local normalized and benchmark bundles bind every artifact to SHA-256 hashes, source record IDs, the configuration hash, split hashes, code revision and source labels. The authoritative configuration is `configs/observed_traffic.yaml`; normalized files are kept under ignored `data/observed/`, and results under ignored `results/observed_traffic/` pending license clarification.
+The local normalized and benchmark bundles bind every artifact to SHA-256 hashes, source record IDs, the configuration hash, split hashes, code revision and source labels. The authoritative configuration is `configs/observed_traffic.yaml`; normalized files are kept under ignored `data/observed/`, and results under ignored `results/observed_traffic/` while the exact public-redistribution scope of TfC's direct permission is recorded and reviewed.
 
-The final locally validated bundle was generated at `2026-11-10T10:35:10.337851+00:00` and records:
-
-- configuration SHA-256 `63fada7ed19fc2ce28d77d9ba292b899ba2187c35f293f95a4da1ea33409442a`;
-- split-manifest SHA-256 `9f592b86fa2dabc9293d6568042fd4b9ee7c0d956670a1b18c69335a6cb16fa7`;
-- EO-stack SHA-256 `197d9ca66a290c77b8d412503683001a665d5c9034da025151d1988c9db9e903`;
-- current-OSM manifest SHA-256 `f37955823bdb51ef751af91b2c8948c20189736cb8bbc32e57b0bb59a6b64cb2`;
-- code revision `71a163f296c87a38913e45fba1085257e4c61294` with an intentionally dirty feature-branch worktree; and
-- compatible MLflow experiment `UrbanTwin-Observed-Traffic`, run `108df19c55d445ea8e53b0c85abbb4ce`.
+The executed local bundle records its configuration, split, EO stack, current-OSM manifest, source
+archives, code revision and every result artifact by SHA-256. The authoritative current values and
+compatible `UrbanTwin-Observed-Traffic` run ID are read from the validated local provenance and
+MLflow association. Historical runs remain immutable and are not relabeled to claim a cleaner Git
+state.
 
 From Windows PowerShell 5.1 with Python 3.12 and legitimate local downloads:
 
@@ -185,3 +182,9 @@ urbantwin observed-report
 
 Use new output-directory names for repeated runs; the preparation and benchmark stages refuse to overwrite an inspected bundle. The manual download pages and verified schemas are documented in [real_data_feasibility.md](real_data_feasibility.md).
 
+## Attribution
+
+- Transport for Cairo (TfC): 2024 traffic counts and traffic survey locations, used under direct academic research/data-reuse permission reported by the project author; no open license or unrecorded redistribution right is claimed.
+- Contains modified Copernicus Sentinel data 2024.
+- © ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium. WorldCover 2021 is provided under CC BY 4.0.
+- Road data © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), available under ODbL 1.0.

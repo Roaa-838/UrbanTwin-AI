@@ -19,9 +19,11 @@ third-party mapped, inferred and entirely simulated variables?
 The project aligns Sentinel-2 L2A bands and ESA WorldCover to a 10 m EPSG:32636 grid with explicit
 SCL masking, continuous/categorical resampling and source-item provenance. The 2021 GeoAI experiment
 uses repeated grouped spatial evaluation and reports agreement with WorldCover pseudo-labels—not
-independent land-cover accuracy. A separate near-survey bundle contains real Sentinel-2 L2A scenes
-from 24 October, 29 October and 3 November 2024. WorldCover 2021 remains a historic reference, not
-2024 ground truth.
+independent land-cover accuracy. A separate retrospective-context bundle contains real Sentinel-2
+L2A scenes from 24 October, 29 October and 3 November 2024. The 3 November acquisition postdates the
+selected 31 October survey and was unavailable to a prospective forecast. WorldCover 2021 remains a
+historic reference, not 2024 ground truth. EO is absent from the multi-site traffic benchmark, so no
+EO accuracy gain was tested.
 
 ### Measured TfC traffic
 
@@ -33,16 +35,19 @@ the primary spatial benchmark.
 
 The source has no official physical-site key. A declared 250 m projected line-distance connected-
 component rule reproducibly gives 60 analytical groups; these are inferred sites, never TfC IDs.
-The final six survey dates (27 October–5 November 2024) form a frozen joint future-date/unseen-site
+The final six survey dates (27 October–5 November 2024) form a frozen joint future-date/unseen-inferred-site
 holdout: 1,207 rows from ten inferred sites, with no site overlap with the 5,255-row training set.
 Five-fold grouped validation stays inside training. Because each directional segment occurs on one
 date only, date and site effects cannot be separated.
 
-The lowest measurement-free holdout point estimate is histogram gradient boosting with combined
-time/static spatial features: MAE 348.25 (95% site-bootstrap interval 239.46–487.46) and RMSE 496.34
-(309.46–654.29) vehicles per 20 minutes. Broad overlapping intervals preclude a superiority or
+Training-only GroupKFold development ranked Random Forest with combined features first (mean CV MAE
+283.42). Histogram gradient boosting with combined time/static spatial features had the lowest
+observed final-holdout MAE point estimate: 348.25 (95% site-bootstrap interval 239.46–487.46), with
+RMSE 496.34 (309.46–654.29) vehicles per 20 minutes. The latter is a descriptive holdout ordering,
+not retrospective model selection. Broad overlapping intervals preclude a superiority or
 significance claim. Online one-step persistence has MAE 63.93 and RMSE 144.04 on 1,170 exactly
 adjacent intervals, but it consumes the previous measured count and is therefore a different task.
+The static geometry descriptors come from TfC-released OSM-derived lines dated July 2026.
 
 ### Existing abstract SUMO experiment
 
@@ -64,10 +69,11 @@ calibration, GA/PSO comparisons on Cairo geometry and any real-world improvement
 
 - Count archive SHA-256: `d90703a022b2cad08e0533a4d9538236e45034c2fe260673a08c6995a56bbd7b`.
 - Survey-location archive SHA-256: `d8b8e329be14b2c008460e7caed55c3dc820dc151119f4d0d37fa4a6070b42b1`.
-- Current observed MLflow run: `108df19c55d445ea8e53b0c85abbb4ce` in
-  `UrbanTwin-Observed-Traffic`.
-- TfC attribution is recorded, but its portal supplied no explicit license identifier. Source and
-  row-level derived records remain Git-ignored pending written reuse terms.
+- The compatible observed run ID and clean code revision are stored in the validated local
+  provenance/association record for `UrbanTwin-Observed-Traffic`, not hardcoded in this document.
+- TfC attribution is recorded. The project author reports direct TfC permission for this academic
+  research and data reuse; this is not an open license. Source and row-level derivatives remain
+  Git-ignored until the private permission record confirms the intended public-redistribution scope.
 - The release contains aggregate link counts, not identifiable trajectories. Results must not be
   used for automated enforcement, neighborhood ranking or controller deployment.
 - EO/road descriptors are descriptive associations. No causal land-use effect is inferred.

@@ -545,4 +545,3 @@ def audit_observed_traffic(
             "No signal timing or phase observations are inferred by this audit.",
         ],
     }
-

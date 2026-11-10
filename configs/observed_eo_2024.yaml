@@ -11,3 +11,7 @@ worldcover_year: 2021
 worldcover_role: historic_reference_product_not_2024_ground_truth
 traffic_context_date: "2024-10-31"
 interpretation: Descriptive spatial context only; no causal traffic interpretation
+prediction_benchmark_role: excluded_from_multi_site_prediction_features
+post_survey_scene_role: The 2024-11-03 Sentinel-2 scene is retrospective context for the 2024-10-31 traffic survey.
+sentinel_acknowledgement: Contains modified Copernicus Sentinel data 2024.
+worldcover_acknowledgement: © ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium.

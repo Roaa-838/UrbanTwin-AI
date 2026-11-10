@@ -242,4 +242,3 @@ def test_cli_observed_data_audit_is_read_only(tmp_path, capsys):
     assert sorted(path.name for path in tmp_path.iterdir()) == before
     output = json.loads(capsys.readouterr().out)
     assert output["data_kind"] == "real_observed_traffic"
-

@@ -30,7 +30,7 @@ from urbantwin.observed.features import (
     spatial_segment_features,
 )
 
-SCHEMA_VERSION = "urbantwin.observed-benchmark/v1"
+SCHEMA_VERSION = "urbantwin.observed-benchmark/v2"
 
 _TIME_NUMERIC = ["time_sin", "time_cos"]
 _TIME_CATEGORICAL = ["day_of_week"]
@@ -223,6 +223,33 @@ def _metric_record(
     return result
 
 
+def _training_cv_selection(cv_metrics: pd.DataFrame) -> dict[str, Any]:
+    """Select the primary specification using training-only grouped CV."""
+    summary = (
+        cv_metrics.groupby(["model", "feature_set"], observed=True, as_index=False)
+        .agg(mean_mae=("mae", "mean"), mean_rmse=("rmse", "mean"))
+        .sort_values(
+            ["mean_mae", "mean_rmse", "model", "feature_set"],
+            kind="mergesort",
+        )
+        .reset_index(drop=True)
+    )
+    if summary.empty:
+        raise ValueError("Training-only grouped CV produced no model-selection records")
+    selected = summary.iloc[0]
+    return {
+        "selection_partition": "training_only",
+        "selection_protocol": "five_fold_grouped_cv_by_inferred_site",
+        "criterion": "lowest_mean_mae_then_mean_rmse",
+        "model": str(selected["model"]),
+        "feature_set": str(selected["feature_set"]),
+        "mean_mae": float(selected["mean_mae"]),
+        "mean_rmse": float(selected["mean_rmse"]),
+        "candidate_count": len(summary),
+        "holdout_scores_used_for_selection": False,
+    }
+
+
 def _prediction_rows(
     test: pd.DataFrame,
     prediction: np.ndarray,
@@ -319,6 +346,7 @@ def _write_figures(
     predictions: pd.DataFrame,
     segments,
     selected_segment_ids: list[str],
+    primary_selection: dict[str, Any],
 ) -> list[Path]:
     import matplotlib.pyplot as plt
 
@@ -376,19 +404,44 @@ def _write_figures(
     totals = full_frame.groupby("segment_id", observed=True)["observed_vehicle_total"].sum()
     mapped = segments.copy()
     mapped["measured_total"] = mapped["segment_id"].map(totals)
-    figure, axis = plt.subplots(figsize=(9, 8))
+    from matplotlib.cm import ScalarMappable
+    from matplotlib.colors import Normalize
+
+    measured = mapped["measured_total"].dropna()
+    color_norm = Normalize(vmin=float(measured.min()), vmax=float(measured.max()))
+    figure, axis = plt.subplots(figsize=(12, 8))
     mapped.plot(
         ax=axis,
         column="measured_total",
         cmap="viridis",
-        linewidth=1.5,
-        legend=True,
+        norm=color_norm,
+        linewidth=2.6,
         missing_kwds={"color": "lightgray", "label": "No count rows"},
     )
-    mapped.loc[mapped["segment_id"].isin(selected_segment_ids)].plot(
-        ax=axis, color="none", edgecolor="#d62728", linewidth=4
+    centroids = mapped.loc[mapped["measured_total"].notna()].geometry.centroid
+    axis.scatter(
+        centroids.x,
+        centroids.y,
+        c=mapped.loc[mapped["measured_total"].notna(), "measured_total"],
+        cmap="viridis",
+        norm=color_norm,
+        s=18,
+        linewidths=0,
+        alpha=0.9,
+        zorder=3,
     )
-    axis.set_title("TfC directional survey segments and measured vehicle totals")
+    mapped.loc[mapped["segment_id"].isin(selected_segment_ids)].plot(
+        ax=axis, color="none", edgecolor="#d62728", linewidth=5.0, zorder=4
+    )
+    colorbar = figure.colorbar(ScalarMappable(norm=color_norm, cmap="viridis"), ax=axis)
+    colorbar.set_label("Measured vehicles across surveyed 20-minute intervals")
+    west, south, east, north = mapped.total_bounds
+    x_padding = max((east - west) * 0.035, 250.0)
+    y_padding = max((north - south) * 0.035, 250.0)
+    axis.set_xlim(west - x_padding, east + x_padding)
+    axis.set_ylim(south - y_padding, north + y_padding)
+    axis.set_title("Greater Cairo TfC directional survey segments and measured totals")
+    axis.set_aspect("equal")
     axis.set_axis_off()
     figure.tight_layout()
     path = figures / "survey_segments_measured_flow.png"
@@ -396,24 +449,32 @@ def _write_figures(
     plt.close(figure)
     paths.append(path)
 
-    best = final_metrics.iloc[0]
-    best_predictions = predictions.loc[
-        (predictions["model"] == best["model"])
-        & (predictions["feature_set"] == best["feature_set"])
+    primary_predictions = predictions.loc[
+        (predictions["model"] == primary_selection["model"])
+        & (predictions["feature_set"] == primary_selection["feature_set"])
+        & (predictions["information_budget"] == "measurement_free_estimation")
     ]
+    if primary_predictions.empty:
+        raise ValueError("Training-CV-selected specification has no holdout predictions")
     figure, axis = plt.subplots(figsize=(6.5, 6))
     axis.scatter(
-        best_predictions["observed_vehicle_total"],
-        best_predictions["prediction"],
+        primary_predictions["observed_vehicle_total"],
+        primary_predictions["prediction"],
         alpha=0.35,
         s=16,
     )
     maximum = float(
-        max(best_predictions["observed_vehicle_total"].max(), best_predictions["prediction"].max())
+        max(
+            primary_predictions["observed_vehicle_total"].max(),
+            primary_predictions["prediction"].max(),
+        )
     )
     axis.plot([0, maximum], [0, maximum], linestyle="--", color="black", linewidth=1)
     axis.set(
-        title=f"Observed versus estimated: {best['model']} ({best['feature_set']})",
+        title=(
+            "Observed versus estimated for training-CV-selected model: "
+            f"{primary_selection['model']} ({primary_selection['feature_set']})"
+        ),
         xlabel="Observed vehicles per 20 minutes",
         ylabel="Estimated vehicles per 20 minutes",
     )
@@ -548,8 +609,22 @@ def run_observed_benchmark(
     benchmark = configuration.get("benchmark")
     spatial = configuration.get("spatial")
     selection = configuration.get("site_selection")
-    if not isinstance(benchmark, dict) or not isinstance(spatial, dict) or not isinstance(selection, dict):
-        raise TypeError("Observed config requires benchmark, spatial, and site_selection mappings")
+    permission = configuration.get("permission")
+    if (
+        not isinstance(benchmark, dict)
+        or not isinstance(spatial, dict)
+        or not isinstance(selection, dict)
+        or not isinstance(permission, dict)
+    ):
+        raise TypeError(
+            "Observed config requires benchmark, spatial, site_selection, and permission mappings"
+        )
+    if permission.get("status") != "author_reported_academic_research_reuse_authorized":
+        raise ValueError("Observed config does not record author-reported academic reuse permission")
+    if permission.get("public_redistribution_status") != "requires_exact_written_terms":
+        raise ValueError(
+            "Observed config must not infer public redistribution rights from academic reuse permission"
+        )
     source_manifest_path = study_dir / "source_manifest.json"
     source_manifest = _read_json(source_manifest_path)
     for role in ("traffic_counts", "survey_locations"):
@@ -597,6 +672,7 @@ def run_observed_benchmark(
                 "No current-period class count or total count is used as a model feature.",
                 "No segment ID, inferred-site ID, OSM ID, road name, or exact date is a feature.",
                 "Opposite-direction and duplicate survey records are not used as features.",
+                "Earth-observation descriptors are retrospective context and are not model features.",
                 "Five conflicting OSM joins are excluded from the primary benchmark.",
                 "Persistence uses only an exactly adjacent previous 20-minute observation.",
             ],
@@ -612,14 +688,39 @@ def run_observed_benchmark(
     metric_rows: list[dict[str, Any]] = []
     prediction_frames: list[pd.DataFrame] = []
     cv_rows: list[dict[str, Any]] = []
+    cv_prediction_frames: list[pd.DataFrame] = []
+    cv_split_folds: list[dict[str, Any]] = []
 
     grouped = GroupKFold(n_splits=5)
+    specifications = [("historical_mean", "time_only"), *_model_specs(benchmark)]
     for fold, (fit_index, validation_index) in enumerate(
         grouped.split(train, groups=train["inferred_site_id"]), start=1
     ):
         fit = train.iloc[fit_index]
         validation = train.iloc[validation_index]
-        specifications = [("historical_mean", "time_only"), *_model_specs(benchmark)]
+        fit_sites = sorted(fit["inferred_site_id"].astype(str).unique())
+        validation_sites = sorted(validation["inferred_site_id"].astype(str).unique())
+        overlap = sorted(set(fit_sites) & set(validation_sites))
+        if overlap:
+            raise ValueError(f"Grouped CV fold {fold} has inferred-site leakage")
+        cv_split_folds.append(
+            {
+                "fold": fold,
+                "fit_rows": len(fit),
+                "validation_rows": len(validation),
+                "fit_inferred_sites": len(fit_sites),
+                "validation_inferred_sites": len(validation_sites),
+                "site_overlap": overlap,
+                "fit_observation_ids_sha256": _canonical_hash(
+                    sorted(fit["observation_id"].astype(str))
+                ),
+                "validation_observation_ids_sha256": _canonical_hash(
+                    sorted(validation["observation_id"].astype(str))
+                ),
+                "fit_inferred_site_ids_sha256": _canonical_hash(fit_sites),
+                "validation_inferred_site_ids_sha256": _canonical_hash(validation_sites),
+            }
+        )
         for model, feature_set in specifications:
             if model == "historical_mean":
                 estimate = _historical_mean(fit, validation)
@@ -643,8 +744,46 @@ def run_observed_benchmark(
                     **_metric_values(validation[target].to_numpy(), estimate),
                 }
             )
+            fold_predictions = _prediction_rows(
+                validation,
+                estimate,
+                protocol="training_only_five_fold_grouped_oof",
+                model=model,
+                feature_set=feature_set,
+                information_budget="measurement_free_estimation",
+            )
+            fold_predictions.insert(0, "fold", fold)
+            cv_prediction_frames.append(fold_predictions)
 
-    specifications = [("historical_mean", "time_only"), *_model_specs(benchmark)]
+    cv_metrics = pd.DataFrame(cv_rows)
+    cv_predictions = pd.concat(cv_prediction_frames, ignore_index=True)
+    primary_selection = _training_cv_selection(cv_metrics)
+    split_manifest["model_selection"] = primary_selection
+    cv_split_manifest = {
+        "schema_version": "urbantwin.observed-cv-split/v1",
+        "protocol": "training_only_five_fold_grouped_oof",
+        "group_key": "inferred_site_id",
+        "n_splits": 5,
+        "training_rows": len(train),
+        "training_inferred_sites": int(train["inferred_site_id"].nunique()),
+        "training_observation_ids_sha256": split_manifest[
+            "training_observation_ids_sha256"
+        ],
+        "source_manifest_sha256": sha256_file(source_manifest_path),
+        "source_counts_sha256": source_manifest["sources"]["counts"]["sha256"],
+        "source_locations_sha256": source_manifest["sources"]["locations"]["sha256"],
+        "config_sha256": sha256_file(config_path),
+        "model_selection": primary_selection,
+        "folds": cv_split_folds,
+        "leakage_controls": [
+            "Each training observation is validation data in exactly one fold per specification.",
+            "Fit and validation inferred-site groups are disjoint in every fold.",
+            "All preprocessing is fitted inside each fold's fit partition.",
+            "Final-holdout observations and scores are not used for model selection.",
+            "Earth-observation descriptors are not prediction features.",
+        ],
+    }
+
     for model_number, (model, feature_set) in enumerate(specifications):
         if model == "historical_mean":
             prediction = _historical_mean(train, test)
@@ -718,7 +857,17 @@ def run_observed_benchmark(
 
     metrics = pd.DataFrame(metric_rows)
     predictions = pd.concat(prediction_frames, ignore_index=True)
-    cv_metrics = pd.DataFrame(cv_rows)
+    holdout_measurement_free = metrics.loc[
+        metrics["information_budget"] == "measurement_free_estimation"
+    ].sort_values(["mae", "rmse", "model", "feature_set"], kind="mergesort")
+    lowest_holdout = holdout_measurement_free.iloc[0]
+    split_manifest["lowest_observed_holdout_point_estimate"] = {
+        "selection_role": "descriptive_only_not_used_for_model_selection",
+        "model": str(lowest_holdout["model"]),
+        "feature_set": str(lowest_holdout["feature_set"]),
+        "mae": float(lowest_holdout["mae"]),
+        "rmse": float(lowest_holdout["rmse"]),
+    }
     site_errors = (
         predictions.assign(
             absolute_error=lambda value: value["residual_prediction_minus_observed"].abs(),
@@ -765,6 +914,9 @@ def run_observed_benchmark(
     try:
         metrics.to_csv(staging / "observed_metrics.csv", index=False, lineterminator="\n")
         cv_metrics.to_csv(staging / "observed_cv_metrics.csv", index=False, lineterminator="\n")
+        cv_predictions.to_csv(
+            staging / "observed_cv_predictions.csv", index=False, lineterminator="\n"
+        )
         predictions.to_csv(
             staging / "observed_predictions.csv", index=False, lineterminator="\n"
         )
@@ -777,6 +929,10 @@ def run_observed_benchmark(
         )
         (staging / "split_manifest.json").write_text(
             json.dumps(split_manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        (staging / "cv_split_manifest.json").write_text(
+            json.dumps(cv_split_manifest, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
         )
         segments = spatial_segment_features(
             study_dir,
@@ -819,6 +975,7 @@ def run_observed_benchmark(
             predictions,
             segments,
             [str(value) for value in selection["selected_segment_ids"]],
+            primary_selection,
         )
         if eo_context:
             figure_paths.append(
@@ -852,7 +1009,14 @@ def run_observed_benchmark(
             "configuration": configuration,
             "git": _git_state(config_path.parents[1]),
             "split_manifest_sha256": sha256_file(staging / "split_manifest.json"),
+            "cv_split_manifest_sha256": sha256_file(staging / "cv_split_manifest.json"),
             "license": source_manifest["license"],
+            "portal_license": source_manifest["license"],
+            "author_reported_permission": permission,
+            "model_selection": primary_selection,
+            "lowest_observed_holdout_point_estimate": split_manifest[
+                "lowest_observed_holdout_point_estimate"
+            ],
             "source_labels": {
                 "traffic": "measured TfC directional link counts (2024)",
                 "geometry": "TfC-released OSM-derived survey lines (2026 OSM extract)",
@@ -896,7 +1060,12 @@ def run_observed_benchmark(
                 split_manifest["warning"],
                 "Inferred site groups are analytical clusters, not publisher location IDs.",
                 "EO context is descriptive and cannot establish a causal traffic relationship.",
+                "EO descriptors do not enter the multi-site prediction benchmark.",
                 "Current OSM context is third-party map data, not a 2024 traffic observation.",
+                (
+                    "Academic research reuse permission is author-reported; public "
+                    "redistribution depends on the exact written terms retained privately."
+                ),
                 "No measured-demand signal-control SUMO experiment was run.",
             ],
         }

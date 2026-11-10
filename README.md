@@ -10,9 +10,9 @@
 
 A modular research prototype integrating:
 
-- **Real geospatial context** around Tahrir Square, Cairo: validated Sentinel-2 L2A 2021 and near-survey 2024 bundles, ESA WorldCover 2021 historic reference labels, georeferenced maps, NDVI and NDBI.
+- **Real geospatial context** around Tahrir Square, Cairo: validated Sentinel-2 L2A 2021 and retrospective-context 2024 bundles, ESA WorldCover 2021 historic reference labels, georeferenced maps, NDVI and NDBI.
 - **ML evaluation:** Random Forest vs Histogram Gradient Boosting, spectral feature ablation, repeated grouped spatial splits, per-class confusion matrices, and explicit unsupported-class reporting **against WorldCover pseudo-labels**.
-- **Measured traffic analysis:** actual TfC 2024 directional 20-minute link counts, lossless normalization, inferred-site grouping, frozen joint future-date/unseen-site evaluation and separate online persistence.
+- **Measured traffic analysis:** actual TfC 2024 directional 20-minute link counts, lossless normalization, inferred-site grouping, frozen joint future-date/unseen-inferred-site evaluation and separate online persistence.
 - **Traffic simulation:** a completed, explicitly abstract SUMO fixed-time/GA/PSO/equal-budget random-search comparison. It is not observed Cairo demand.
 - **Visualization and research outputs:** Streamlit dashboard, plots, machine-readable provenance, research-report PDF generator.
 
@@ -29,7 +29,7 @@ experiment.
 | Component | Verified local status | How to validate |
 |---|---|---|
 | 2021 real EO and repeated grouped WorldCover agreement | Executed and provenance-valid locally | `urbantwin status` |
-| Near-survey 2024 Sentinel-2 context | Executed locally; WorldCover remains historic 2021 reference | `urbantwin observed-eo-fetch` for a new directory |
+| Retrospective 2024 Sentinel-2 context | Executed locally; WorldCover remains historic 2021 reference | `urbantwin observed-eo-fetch` for a new directory |
 | TfC measured traffic ingestion and benchmark | Executed: 6,618 intervals / 2,961,483 vehicles | `urbantwin observed-study --resume` |
 | Current OSM study-area context | Validated: 849 nodes / 1,788 directed edges; current third-party map context | Inspect `data/observed/osm/current_tahrir/road_manifest.json` |
 | Full abstract SUMO comparison | Executed: 198 logical requests / 162 physical runs / 36 cache hits; synthetic network/demand | `urbantwin status` |
@@ -119,7 +119,10 @@ This downloads the driving-road network for the bounding box (not a historical s
 
 **5. Acquire and validate the official TfC files, then run the observed study.**
 
-The audited official records are [TfC Traffic Counts, record 190](https://data.transportforcairo.com/catalogue/#/document/190) and [TfC Traffic Survey Locations, record 193](https://data.transportforcairo.com/catalogue/#/dataset/193). TfC did not state an explicit reuse license on these records. The commands below keep source and derived row-level files under Git-ignored `data/observed/`; do not redistribute them until TfC confirms reuse terms.
+The audited official records are [TfC Traffic Counts, record 190](https://data.transportforcairo.com/catalogue/#/document/190) and [TfC Traffic Survey Locations, record 193](https://data.transportforcairo.com/catalogue/#/dataset/193). Their portal metadata does not state an explicit license. The project author reports that TfC subsequently granted direct permission to continue this academic research and reuse the data. That permission is not described as an open-source or open-data license, and its exact wording is retained privately. Public redistribution of source files, normalized rows, derived maps, figures, metrics, PDFs or GitHub artifacts must remain paused unless the recorded terms expressly allow the intended publication. The commands below keep source and row-level derivatives under Git-ignored `data/observed/`.
+
+The public-branch inventory and the exact permission questions that remain are documented in
+[docs/publication_scope.md](docs/publication_scope.md).
 
 PowerShell 5.1 can download the two small official archives directly. For a manual browser download,
 open the two official record pages above, choose their download action, and save the files exactly as
@@ -186,7 +189,7 @@ urbantwin observed-roads `
   --pbf "D:\path\to\egypt-latest.osm.pbf"
 ```
 
-Fetch the separate near-survey EO context and run the bounded study. `observed-eo-fetch` writes only to `data/observed/eo_2024/` and cannot replace `data/real/`. The three verified Sentinel-2 L2A scenes are dated 24 October, 29 October and 3 November 2024; WorldCover 2021 remains a historic reference product.
+Fetch the separate retrospective EO context and run the bounded study. `observed-eo-fetch` writes only to `data/observed/eo_2024/` and cannot replace `data/real/`. The three verified Sentinel-2 L2A scenes are dated 24 October, 29 October and 3 November 2024. The 3 November scene postdates the selected 31 October traffic survey and was unavailable to a prospective forecast; all EO descriptors are used only for retrospective spatial context. WorldCover 2021 remains a historic reference product.
 
 ```powershell
 urbantwin observed-eo-fetch
@@ -205,19 +208,25 @@ jupyter lab notebooks\03_observed_traffic_measurements.ipynb `
 ```
 
 The frozen final split uses the last six survey dates and ten unseen inferred sites: 5,255 training
-rows from 50 inferred sites and 1,207 holdout rows, with zero site overlap. Five ambiguous OSM joins
-(156 rows) are excluded from the primary benchmark. Under the measurement-free information budget,
-combined-feature histogram gradient boosting has the lowest MAE point estimate: 348.25 vehicles per
-20 minutes (95% site-bootstrap interval 239.46–487.46), with RMSE 496.34 (309.46–654.29).
+rows from 50 inferred sites and 1,207 holdout rows, with zero site overlap. Because each segment was
+surveyed on only one date, this is one joint future-date/unseen-inferred-site shift; it is not separate
+proof of temporal and geographic generalization. Five ambiguous OSM joins (156 rows) are excluded
+from the primary benchmark. Training-only GroupKFold development ranked Random Forest with combined
+features first (mean CV MAE 283.42). On the untouched final holdout, histogram gradient boosting with
+combined features had the lowest observed measurement-free MAE point estimate: 348.25 vehicles per
+20 minutes (95% site-bootstrap interval 239.46–487.46), with RMSE 496.34 (309.46–654.29). The holdout
+comparison is reported descriptively and is not used to retrospectively select or declare a winning
+model. EO is absent from every multi-site benchmark feature set, so no EO accuracy gain was tested.
 Online persistence is evaluated on 1,170 exactly adjacent intervals and has MAE 63.93 and RMSE 144.04,
 but it consumes the preceding measured count. It is therefore a different online task, not a fair
-head-to-head baseline. The compatible local MLflow record is experiment
-`UrbanTwin-Observed-Traffic`, run `108df19c55d445ea8e53b0c85abbb4ce`.
+head-to-head baseline. The authoritative compatible run ID, clean code revision and artifact hashes
+are read from the local provenance and MLflow association produced by the executed study; public
+documentation does not hardcode a mutable run association.
 
 Local observed-study storage is deliberately separate:
 
 - official downloads and normalized tables: `data/observed/`;
-- near-survey EO: `data/observed/eo_2024/`;
+- retrospective EO context: `data/observed/eo_2024/`;
 - validated observed outputs: `results/observed_traffic/`;
 - observed PDF and hash sidecar: `output/pdf/`;
 - optional SQLite tracking and artifacts: `.urbantwin/mlflow/`.
@@ -278,7 +287,7 @@ python -m pip install -e ".[mlflow]"
 urbantwin traffic-run --mlflow --resume
 ```
 
-The default tracking store is the local SQLite database `.urbantwin/mlflow/mlflow.db`, with local artifacts below `.urbantwin/mlflow/artifacts/`. Both locations are ignored by Git. Abstract SUMO runs are organized in `UrbanTwin-Traffic-Optimization`; the measured study uses the separate `UrbanTwin-Observed-Traffic` experiment. The current compatible observed run is `108df19c55d445ea8e53b0c85abbb4ce`. Individual SUMO executions are not turned into thousands of MLflow runs. The authoritative recovery mechanism remains `.urbantwin/checkpoints/traffic/`, and the authoritative final bundles remain the provenance-checked local result files. MLflow records only validated outputs and clearly labels modeled SUMO CO₂ as simulator-only—not observed environmental data.
+The default tracking store is the local SQLite database `.urbantwin/mlflow/mlflow.db`, with local artifacts below `.urbantwin/mlflow/artifacts/`. Both locations are ignored by Git. Abstract SUMO runs are organized in `UrbanTwin-Traffic-Optimization`; the measured study uses the separate `UrbanTwin-Observed-Traffic` experiment. The authoritative compatible observed run ID is stored in the local provenance/association record rather than hardcoded here. Individual SUMO executions are not turned into thousands of MLflow runs. The authoritative recovery mechanism remains `.urbantwin/checkpoints/traffic/`, and the authoritative final bundles remain the provenance-checked local result files. MLflow records only validated outputs and clearly labels modeled SUMO CO₂ as simulator-only—not observed environmental data.
 
 To use another tracking server or database, pass its URI explicitly or set `MLFLOW_TRACKING_URI` before the command. The explicit CLI value takes precedence:
 
@@ -457,8 +466,10 @@ Don't add numeric percentage improvements until the real simulations and statist
 - The road network and traffic simulation are not automatically linked or empirically synchronized.
 - The current default signals model is an idealized straight-through intersection, not real Cairo road geometry.
 - No individually identifiable GPS traces or patient data are used.
-- **Data attribution:** Contains modified Copernicus Sentinel data; ESA WorldCover © ESA (CC BY 4.0); road data © OpenStreetMap contributors (ODbL). Source links: [ESA WorldCover](https://esa-worldcover.org/en/data-access), [Planetary Computer](https://planetarycomputer.microsoft.com/docs/), [OSM](https://www.openstreetmap.org/copyright), [SUMO](https://eclipse.dev/sumo/).
+- **Sentinel attribution:** Contains modified Copernicus Sentinel data 2021 and 2024.
+- **WorldCover attribution:** © ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium. WorldCover 2021 is provided under CC BY 4.0.
+- **Map attribution:** Road data © OpenStreetMap contributors, available under ODbL 1.0. Source links: [ESA WorldCover](https://esa-worldcover.org/en/data-access), [Copernicus Data Space attribution guidance](https://documentation.dataspace.copernicus.eu/FAQ.html), [Planetary Computer](https://planetarycomputer.microsoft.com/docs/), [OSM](https://www.openstreetmap.org/copyright), [SUMO](https://eclipse.dev/sumo/).
 
 ## License
 
-This project's original source code is released under MIT (`LICENSE`). Source data are **not** relicensed by this code repository. Follow each dataset's own terms. Do not commit large downloaded data or unverified performance claims.
+This project's original source code is released under MIT (`LICENSE`). Source data are **not** relicensed by this code repository. TfC has directly authorized the author-reported academic research reuse described above, but no open license or broader public-redistribution grant is claimed. Follow the recorded permission terms and each third-party dataset's license. Do not commit source downloads, private permission correspondence, large derived data or unverified performance claims.

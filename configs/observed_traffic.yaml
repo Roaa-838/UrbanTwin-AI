@@ -1,5 +1,5 @@
 schema_version: urbantwin.observed-study-config/v1
-title: Earth Observation, Observed Traffic Demand and Counterfactual Signal Optimization in Greater Cairo
+title: Measured Greater Cairo Traffic with GIS and Retrospective Earth Observation Context
 random_seed: 42
 
 sources:
@@ -21,7 +21,14 @@ sources:
     status: unspecified_by_publisher
     attribution: Transport for Cairo (TfC)
     redistribution_permitted: false
-    note: Obtain written reuse terms before publishing row-level data or derived datasets.
+    note: The official portal does not publish explicit reuse terms for these records.
+
+permission:
+  status: author_reported_academic_research_reuse_authorized
+  basis: Direct permission reported by the project author; exact written terms remain private.
+  permission_record: .urbantwin/private/permissions/tfc_permission_record.md
+  public_redistribution_status: requires_exact_written_terms
+  note: Academic research and data reuse are authorized as reported by the project author. Do not publish source files or derived materials unless the retained written terms explicitly authorize that scope.
 
 observations:
   timezone_status: unspecified_by_publisher
