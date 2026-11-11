@@ -97,11 +97,11 @@ def validate_observed_artifacts(
         "author_reported_academic_research_reuse_authorized"
     ):
         raise ObservedArtifactIntegrityError(
-            "Observed provenance lacks the author-reported academic reuse permission status"
+            "Observed provenance lacks the frozen dataset-reuse status"
         )
     if permission.get("public_redistribution_status") != "requires_exact_written_terms":
         raise ObservedArtifactIntegrityError(
-            "Observed provenance overstates public redistribution permission"
+            "Observed provenance overstates public redistribution status"
         )
 
     configuration = provenance.get("configuration")

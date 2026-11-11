@@ -358,14 +358,13 @@ def make_observed_report(
                     styles["small"],
                 ),
                 Spacer(1, 4 * mm),
-                Paragraph("Permission and publication scope", styles["h1"]),
+                Paragraph("Dataset reuse boundary", styles["h1"]),
                 Paragraph(
-                    "The project author reports direct permission from Transport for Cairo for "
-                    "academic research and data reuse. This is not described as an open-data or "
-                    "open-source license. The exact written terms must be checked before publicly "
-                    "redistributing source files, normalized rows, derived maps, model tables, or "
-                    "the complete local research report. This publication-safe summary therefore "
-                    "contains methodology and evidence boundaries without TfC-derived results.",
+                    "The portal metadata does not state an explicit record-level open license. "
+                    "Public access is not treated as a redistribution grant; source and derived "
+                    "materials must be handled under the applicable publisher terms. This "
+                    "publication-safe summary therefore contains methodology and evidence "
+                    "boundaries without TfC-derived results.",
                     styles["callout"],
                 ),
                 Paragraph("Scientific protocol", styles["h1"]),
@@ -428,8 +427,8 @@ def make_observed_report(
             "code_revision": provenance["git"]["commit"],
             "report_sha256": sha256_file(output),
             "redistribution_warning": (
-                "Academic research reuse permission is author-reported; public redistribution "
-                "scope must be confirmed from the exact written TfC terms."
+                "The portal metadata states no explicit record-level open license; public "
+                "redistribution requires a documented legal basis under the publisher terms."
             ),
         }
         output.with_suffix(".provenance.json").write_text(
@@ -487,11 +486,10 @@ def make_observed_report(
                 styles["body"],
             ),
             Paragraph(
-                "The project author reports direct TfC permission for academic research and data "
-                "reuse. TfC has not published these records under an open license, and the report "
-                "does not infer permission to redistribute source files, derived materials, or a "
-                "public PDF beyond the exact written terms. Keep this artifact private until those "
-                "terms are recorded and checked.",
+                "The portal metadata does not state an explicit record-level open license. This "
+                "report does not infer a right to redistribute source files, derived materials, "
+                "or a public PDF. Keep this artifact local unless documented publisher terms "
+                "provide a legal basis for the intended release.",
                 styles["callout"],
             ),
         ]
@@ -515,8 +513,8 @@ def make_observed_report(
                 ["Ambiguous OSM joins", "5 segments / 156 rows", "Excluded from primary spatial benchmark"],
                 ["Timezone", "Not provided", "Clock values retained without UTC conversion"],
                 [
-                    "Permission",
-                    "Direct academic reuse permission reported by author",
+                    "Portal license",
+                    "No explicit record-level open license stated",
                     "Public redistribution scope not assumed",
                 ],
             ],
@@ -859,7 +857,7 @@ def make_observed_report(
                     ["Privacy", "The release contains aggregate directional counts, not identifiable trajectories."],
                     [
                         "Reuse",
-                        "Direct academic reuse permission is reported; public redistribution scope is not inferred from that permission.",
+                        "Public access is not treated as a redistribution grant; applicable publisher terms govern reuse.",
                     ],
                 ],
                 [52 * mm, 188 * mm],
@@ -922,9 +920,9 @@ def make_observed_report(
         "mlflow_run_id": association.get("run_id") if association else None,
         "report_sha256": sha256_file(output),
         "redistribution_warning": (
-            "Direct academic research reuse permission is reported by the project author. "
-            "Do not infer public redistribution rights for this complete local report; check "
-            "the exact written TfC terms first."
+            "The portal metadata states no explicit record-level open license. Do not infer "
+            "public redistribution rights for this complete local report; follow the applicable "
+            "publisher terms."
         ),
     }
     sidecar_path = output.with_suffix(".provenance.json")

@@ -321,10 +321,10 @@ def _observed_traffic_section() -> None:
         "OSM-derived survey lines from a 2026 extract."
     )
     st.warning(
-        "The project author reports direct TfC permission for academic research and data reuse. "
-        "This is not an open license, and public redistribution of source files or derived "
-        "materials is not assumed beyond the exact written terms.",
-        title="Permission scope",
+        "The portal metadata states no explicit record-level open license. Public access is not "
+        "treated as a redistribution grant; source and derived materials must follow the "
+        "applicable publisher terms.",
+        title="Dataset reuse terms",
         icon=":material/license:",
     )
     if not PUBLICATION_SAFE:
@@ -367,8 +367,8 @@ def _observed_traffic_section() -> None:
     if PUBLICATION_SAFE:
         st.info(
             "Publication-safe mode omits TfC-derived totals, maps, site/class tables, and exact "
-            "model results. Set `URBANTWIN_PUBLICATION_SAFE=0` only for authorized private review "
-            "after checking the exact written permission terms.",
+            "model results. Set `URBANTWIN_PUBLICATION_SAFE=0` only for a non-public local review "
+            "when the applicable publisher terms provide a legal basis for that use.",
             title="Methods-only public view",
             icon=":material/visibility_off:",
         )
