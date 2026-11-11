@@ -14,6 +14,29 @@ from urbantwin.common import ROOT, load_yaml, require_real_provenance, save_json
 
 STUDY = ROOT / "configs/study_area.yaml"
 EXPERIMENTS = ROOT / "configs/experiments.yaml"
+OBSERVED_CONFIG = ROOT / "configs/observed_traffic.yaml"
+OBSERVED_EO_CONFIG = ROOT / "configs/observed_eo_2024.yaml"
+
+_TFC_COUNTS_RECORD = "https://data.transportforcairo.com/catalogue/#/document/190"
+_TFC_LOCATIONS_RECORD = "https://data.transportforcairo.com/catalogue/#/dataset/193"
+
+
+def _require_observed_study_bundle(study_dir: Path) -> None:
+    """Fail closed with reproducible acquisition steps when private source data is absent."""
+    manifest = study_dir / "source_manifest.json"
+    if manifest.is_file():
+        return
+    raise FileNotFoundError(
+        "Verified TfC observed-data bundle is missing. No synthetic substitute is permitted. "
+        f"Expected: {manifest}. Required official records: Traffic Counts record 190 "
+        f"({_TFC_COUNTS_RECORD}) and Traffic Survey Locations record 193 "
+        f"({_TFC_LOCATIONS_RECORD}). Download them under the terms TfC granted you, then run "
+        "`urbantwin observed-data-audit --counts <COUNTS_FILE> --locations <LOCATIONS_FILE>` "
+        "followed by `urbantwin observed-data-prepare --counts <COUNTS_FILE> "
+        "--locations <LOCATIONS_FILE> --source-retrieved-at-utc "
+        "<ACTUAL_ISO_8601_UTC>`; see README.md section 'Acquire and validate the official "
+        "TfC files'."
+    )
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -28,6 +51,112 @@ def _parser() -> argparse.ArgumentParser:
     real.add_argument("--config", type=Path, default=STUDY)
     roads = commands.add_parser("roads", help="Download and characterize current real OSM roads")
     roads.add_argument("--config", type=Path, default=STUDY)
+    observed = commands.add_parser(
+        "observed-data-audit",
+        help="Validate local 2024 observed traffic counts and survey geometries",
+    )
+    observed.add_argument("--counts", type=Path, required=True, help="Local counts CSV or ZIP")
+    observed.add_argument(
+        "--locations",
+        type=Path,
+        required=True,
+        help="Local survey-locations GeoJSON or single-GeoJSON ZIP",
+    )
+    observed.add_argument("--expected-count-rows", type=int, default=6618)
+    observed.add_argument("--expected-segments", type=int, default=145)
+    prepare = commands.add_parser(
+        "observed-data-prepare",
+        help="Validate and normalize local TfC counts and survey geometry without overwriting",
+    )
+    prepare.add_argument("--counts", type=Path, required=True, help="Official counts CSV or ZIP")
+    prepare.add_argument(
+        "--locations", type=Path, required=True, help="Official survey GeoJSON or ZIP"
+    )
+    prepare.add_argument(
+        "--source-retrieved-at-utc",
+        required=True,
+        help="Actual ISO-8601 UTC download/retrieval timestamp",
+    )
+    prepare.add_argument(
+        "--output-dir", type=Path, default=ROOT / "data/observed/tfc/normalized_v1"
+    )
+    prepare.add_argument("--config", type=Path, default=OBSERVED_CONFIG)
+    prepare.add_argument("--expected-count-rows", type=int, default=6618)
+    prepare.add_argument("--expected-segments", type=int, default=145)
+    observed_eo = commands.add_parser(
+        "observed-eo-fetch",
+        help="Fetch separate real 2024 Sentinel-2 context without replacing the 2021 EO bundle",
+    )
+    observed_eo.add_argument("--config", type=Path, default=OBSERVED_EO_CONFIG)
+    observed_eo.add_argument(
+        "--output-dir", type=Path, default=ROOT / "data/observed/eo_2024"
+    )
+    observed_roads = commands.add_parser(
+        "observed-roads",
+        help="Build checksum-validated current OSM context for the selected observed site",
+    )
+    observed_roads.add_argument(
+        "--study-dir", type=Path, default=ROOT / "data/observed/tfc/normalized_v1"
+    )
+    observed_roads.add_argument(
+        "--output-dir", type=Path, default=ROOT / "data/observed/osm/current_tahrir"
+    )
+    observed_roads.add_argument("--config", type=Path, default=OBSERVED_CONFIG)
+    observed_roads.add_argument(
+        "--pbf",
+        type=Path,
+        help="Optional Geofabrik Egypt PBF fallback (geometry-only, never treated as routable)",
+    )
+    observed_roads.add_argument("--retry-attempts", type=int, default=3)
+    study = commands.add_parser(
+        "observed-study",
+        help="Run the frozen measured-link characterization and leakage-controlled benchmark",
+    )
+    study.add_argument(
+        "--study-dir", type=Path, default=ROOT / "data/observed/tfc/normalized_v1"
+    )
+    study.add_argument(
+        "--output-dir", type=Path, default=ROOT / "results/observed_traffic"
+    )
+    study.add_argument("--config", type=Path, default=OBSERVED_CONFIG)
+    study.add_argument("--eo-dir", type=Path, default=ROOT / "data/observed/eo_2024")
+    study.add_argument(
+        "--road-dir", type=Path, default=ROOT / "data/observed/osm/current_tahrir"
+    )
+    study.add_argument(
+        "--no-eo-context",
+        action="store_true",
+        help="Run without the separate near-survey Sentinel-2/WorldCover context bundle",
+    )
+    study.add_argument(
+        "--resume",
+        action="store_true",
+        help="Reuse a complete strictly validated local study and compatible MLflow run",
+    )
+    study.add_argument(
+        "--mlflow", action="store_true", help="Log validated aggregates to optional MLflow"
+    )
+    study.add_argument("--mlflow-tracking-uri", help="Optional MLflow tracking URI")
+    observed_report = commands.add_parser(
+        "observed-report",
+        help="Build the provenance-checked measured-traffic research PDF",
+    )
+    observed_report.add_argument(
+        "--output",
+        type=Path,
+        default=ROOT / "output/pdf/urbantwin_observed_traffic_study.pdf",
+    )
+    observed_report.add_argument(
+        "--study-output", type=Path, default=ROOT / "results/observed_traffic"
+    )
+    observed_report.add_argument(
+        "--publication-safe",
+        action="store_true",
+        help=(
+            "Build a methods-only PDF that omits TfC-derived rows, maps, tables, "
+            "and exact model results"
+        ),
+    )
     geo = commands.add_parser(
         "geo-train", help="Run repeated grouped WorldCover agreement benchmarks"
     )
@@ -169,6 +298,57 @@ def _print_status() -> None:
         except ArtifactIntegrityError as exc:
             print(f"INVALID: {name} ({_relative(path)}) - {exc}")
 
+    from urbantwin.observed.artifacts import (
+        ObservedArtifactIntegrityError,
+        validate_observed_artifacts,
+    )
+
+    observed_source = ROOT / "data/observed/tfc/normalized_v1/source_manifest.json"
+    if not observed_source.is_file():
+        print(f"NOT RUN: normalized observed traffic ({_relative(observed_source)})")
+    else:
+        try:
+            source_manifest = _read_json(observed_source)
+            if source_manifest.get("data_kind") != "real_observed_traffic":
+                raise ValueError("normalized source has the wrong data_kind")
+            print(
+                "READY: normalized observed traffic "
+                f"({_relative(observed_source)}) - source=real_observed_traffic"
+            )
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            print(f"INVALID: normalized observed traffic ({_relative(observed_source)}) - {exc}")
+
+    from urbantwin.observed.roads import ObservedRoadError, validate_observed_road_bundle
+
+    observed_roads = ROOT / "data/observed/osm/current_tahrir"
+    try:
+        road_bundle = validate_observed_road_bundle(observed_roads)
+        if road_bundle is None:
+            print(f"NOT RUN: observed-site current OSM ({_relative(observed_roads)})")
+        else:
+            connectivity = road_bundle.get("connectivity") or {}
+            print(
+                "READY: observed-site current OSM "
+                f"({_relative(observed_roads / 'road_manifest.json')}) - "
+                f"source={road_bundle['source_kind']}, nodes={road_bundle.get('nodes', 'n/a')}, "
+                f"directed_edges={road_bundle.get('directed_edges', 'n/a')}, "
+                f"weak_components={connectivity.get('weakly_connected_components', 'n/a')}"
+            )
+    except ObservedRoadError as exc:
+        print(f"INVALID: observed-site current OSM ({_relative(observed_roads)}) - {exc}")
+    observed_metrics = ROOT / "results/observed_traffic/observed_metrics.csv"
+    try:
+        observed_bundle = validate_observed_artifacts(ROOT)
+        if observed_bundle is None:
+            print(f"NOT RUN: observed traffic study ({_relative(observed_metrics)})")
+        else:
+            print(
+                "READY: observed traffic study "
+                f"({_relative(observed_metrics)}) - source=real_observed_traffic_analysis"
+            )
+    except ObservedArtifactIntegrityError as exc:
+        print(f"INVALID: observed traffic study ({_relative(observed_metrics)}) - {exc}")
+
     demo_metrics = ROOT / "results/demo/geoai_metrics.csv"
     demo_details = ROOT / "results/demo/geoai_details.json"
     if not demo_metrics.exists() and not demo_details.exists():
@@ -235,6 +415,183 @@ def _run_roads(args: argparse.Namespace) -> None:
         output / "roads.geojson", driver="GeoJSON"
     )
     print(json.dumps(stats, indent=2))
+
+
+def _run_observed_data_audit(args: argparse.Namespace) -> None:
+    from urbantwin.data.observed_traffic import audit_observed_traffic
+
+    summary = audit_observed_traffic(
+        args.counts,
+        args.locations,
+        expected_count_rows=args.expected_count_rows,
+        expected_segments=args.expected_segments,
+    )
+    print(json.dumps(summary, indent=2, sort_keys=True))
+
+
+def _run_observed_data_prepare(args: argparse.Namespace) -> None:
+    from urbantwin.data.observed_study import prepare_observed_data
+
+    configuration = load_yaml(args.config)
+    sources = configuration.get("sources")
+    if not isinstance(sources, dict):
+        raise TypeError("Observed config must contain a sources mapping")
+    expected = {
+        "counts": (sources.get("traffic_counts") or {}).get("expected_sha256"),
+        "locations": (sources.get("survey_locations") or {}).get("expected_sha256"),
+    }
+    for role, path in (("counts", args.counts), ("locations", args.locations)):
+        if not path.is_file():
+            raise FileNotFoundError(f"{role} input is not a file: {path}")
+        actual = sha256_file(path)
+        if expected[role] != actual:
+            raise ValueError(
+                f"{role} source checksum does not match the audited release: {actual}"
+            )
+    license_config = sources.get("license") or {}
+    bundle = prepare_observed_data(
+        args.counts,
+        args.locations,
+        args.output_dir,
+        source_retrieved_at_utc=args.source_retrieved_at_utc,
+        license_status=str(license_config.get("status", "unspecified_by_publisher")),
+        redistribution_permitted=bool(license_config.get("redistribution_permitted", False)),
+        expected_count_rows=args.expected_count_rows,
+        expected_segments=args.expected_segments,
+    )
+    manifest = bundle["manifest"]
+    print(
+        json.dumps(
+            {
+                "data_kind": manifest["data_kind"],
+                "output_dir": str(bundle["root"]),
+                "counts_wide_rows": manifest["row_counts"]["counts_wide"],
+                "counts_long_rows": manifest["row_counts"]["counts_long"],
+                "license": manifest["license"],
+                "warnings": manifest["validation_warnings"],
+            },
+            indent=2,
+        )
+    )
+
+
+def _run_observed_study(args: argparse.Namespace) -> None:
+    from urbantwin.observed.artifacts import validate_observed_artifacts
+    from urbantwin.observed.benchmark import run_observed_benchmark
+
+    if args.mlflow_tracking_uri and not args.mlflow:
+        raise ValueError("--mlflow-tracking-uri requires --mlflow")
+    _require_observed_study_bundle(args.study_dir)
+    if args.output_dir.exists() and args.resume:
+        verified = validate_observed_artifacts(ROOT, args.output_dir, source_dir=args.study_dir)
+        if verified is None:
+            raise RuntimeError("Observed output exists but is not a complete validated study")
+        metrics = verified["metrics"]
+        print("Reused the complete provenance-validated local observed study.")
+    else:
+        metrics = run_observed_benchmark(
+            args.study_dir,
+            args.output_dir,
+            args.config,
+            eo_dir=None if args.no_eo_context else args.eo_dir,
+            road_dir=args.road_dir,
+        )
+    display = metrics[
+        ["model", "feature_set", "information_budget", "rows", "mae", "rmse"]
+    ].copy()
+    print("Measured link-count study; persistence and measurement-free tasks are not comparable.")
+    print(display.to_string(index=False))
+    if args.mlflow:
+        from urbantwin.observed.mlflow_tracking import track_observed_study
+
+        result = track_observed_study(
+            args.output_dir,
+            project_root=ROOT,
+            tracking_uri=args.mlflow_tracking_uri,
+            resume=args.resume,
+        )
+        action = "reused" if result["already_completed"] else "logged"
+        print(
+            f"MLflow {action}: experiment=UrbanTwin-Observed-Traffic "
+            f"run_id={result['run_id']} tracking_uri={result['tracking_uri']}"
+        )
+    print(
+        "Measured-demand signal SUMO: NOT RUN. The source lacks turning movements, "
+        "routes, and observed signal timing; see provenance.json."
+    )
+
+
+def _run_observed_eo_fetch(args: argparse.Namespace) -> None:
+    from urbantwin.data.earth_observation import fetch_real
+
+    if args.output_dir.exists():
+        raise FileExistsError(
+            f"Refusing to overwrite observed EO directory: {args.output_dir}"
+        )
+    configuration = load_yaml(args.config)
+    if configuration.get("worldcover_role") != (
+        "historic_reference_product_not_2024_ground_truth"
+    ):
+        raise ValueError("Observed EO config must label WorldCover as a historic reference")
+    provenance = fetch_real(configuration, args.output_dir)
+    print(
+        json.dumps(
+            {
+                "data_kind": provenance["data_kind"],
+                "output_dir": str(args.output_dir),
+                "sentinel_stac_item_ids": provenance["sentinel_stac_item_ids"],
+                "sentinel_items": provenance["sentinel_items"],
+                "worldcover_role": configuration["worldcover_role"],
+                "eo_stack_sha256": provenance["eo_stack_sha256"],
+            },
+            indent=2,
+        )
+    )
+
+
+def _run_observed_roads(args: argparse.Namespace) -> None:
+    from urbantwin.observed.roads import prepare_observed_roads
+
+    _require_observed_study_bundle(args.study_dir)
+    manifest = prepare_observed_roads(
+        args.study_dir,
+        args.output_dir,
+        load_yaml(args.config),
+        pbf_path=args.pbf,
+        retry_attempts=args.retry_attempts,
+    )
+    print(
+        json.dumps(
+            {
+                "data_kind": manifest["data_kind"],
+                "source_kind": manifest["source_kind"],
+                "output_dir": str(args.output_dir.resolve()),
+                "routable_graph": manifest["routable_graph"],
+                "nodes": manifest.get("nodes"),
+                "directed_edges": manifest.get("directed_edges"),
+                "connectivity": manifest.get("connectivity"),
+                "map_matching": manifest.get("map_matching"),
+                "simulation_readiness": manifest["simulation_readiness"],
+                "attribution": manifest["attribution"],
+                "license": manifest["license"],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+
+
+def _run_observed_report(args: argparse.Namespace) -> None:
+    from urbantwin.observed.report import make_observed_report
+
+    output = make_observed_report(
+        ROOT,
+        args.output,
+        observed_output=args.study_output,
+        publication_safe=args.publication_safe,
+    )
+    print(output)
+    print(output.with_suffix(".provenance.json"))
 
 
 def _run_geo_train(args: argparse.Namespace) -> None:
@@ -370,6 +727,12 @@ def main(argv: list[str] | None = None) -> int:
         "demo": _run_demo,
         "eo-fetch": _run_eo_fetch,
         "roads": _run_roads,
+        "observed-data-audit": _run_observed_data_audit,
+        "observed-data-prepare": _run_observed_data_prepare,
+        "observed-eo-fetch": _run_observed_eo_fetch,
+        "observed-roads": _run_observed_roads,
+        "observed-report": _run_observed_report,
+        "observed-study": _run_observed_study,
         "geo-train": _run_geo_train,
         "traffic-run": _run_traffic,
         "report": _run_report,
@@ -378,11 +741,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         handlers[args.cmd](args)
     except KeyboardInterrupt:
-        print(
-            "Interrupted by user. Completed SUMO checkpoints were preserved; "
-            "rerun traffic-run with --resume.",
-            file=sys.stderr,
-        )
+        message = "Interrupted by user. Completed local artifacts were preserved."
+        if args.cmd == "traffic-run":
+            message += " Completed SUMO checkpoints were preserved; rerun with --resume."
+        print(message, file=sys.stderr)
         return 130
     except (FileNotFoundError, KeyError, RuntimeError, TypeError, ValueError) as exc:
         parser.exit(2, f"urbantwin {args.cmd} failed: {exc}\n")

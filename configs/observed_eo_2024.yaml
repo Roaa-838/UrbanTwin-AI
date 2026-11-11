@@ -1,0 +1,17 @@
+name: Tahrir selected-link context near the 2024 TfC survey date
+mode: real
+bbox: [31.225, 30.038, 31.247, 30.053]
+crs: EPSG:32636
+resolution_m: 10
+reference_year: 2024
+sentinel_period: ["2024-10-24", "2024-11-07"]
+max_scene_cloud_pct: 35
+composite_scenes: 3
+worldcover_year: 2021
+worldcover_role: historic_reference_product_not_2024_ground_truth
+traffic_context_date: "2024-10-31"
+interpretation: Descriptive spatial context only; no causal traffic interpretation
+prediction_benchmark_role: excluded_from_multi_site_prediction_features
+post_survey_scene_role: The 2024-11-03 Sentinel-2 scene is retrospective context for the 2024-10-31 traffic survey.
+sentinel_acknowledgement: Contains modified Copernicus Sentinel data 2024.
+worldcover_acknowledgement: © ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium.

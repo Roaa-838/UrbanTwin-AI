@@ -1,0 +1,73 @@
+schema_version: urbantwin.observed-study-config/v1
+title: Measured Greater Cairo Traffic with GIS and Retrospective Earth Observation Context
+random_seed: 42
+
+sources:
+  traffic_counts:
+    publisher: Transport for Cairo (TfC)
+    record_id: 190
+    asset_id: 252
+    page: https://data.transportforcairo.com/catalogue/#/document/190
+    download: https://data.transportforcairo.com/api/v2/assets/252/download
+    expected_sha256: d90703a022b2cad08e0533a4d9538236e45034c2fe260673a08c6995a56bbd7b
+  survey_locations:
+    publisher: Transport for Cairo (TfC)
+    record_id: 193
+    asset_id: 255
+    page: https://data.transportforcairo.com/catalogue/#/dataset/193
+    download: https://data.transportforcairo.com/api/v2/assets/255/download
+    expected_sha256: d8b8e329be14b2c008460e7caed55c3dc820dc151119f4d0d37fa4a6070b42b1
+  license:
+    status: unspecified_by_publisher
+    attribution: Transport for Cairo (TfC)
+    redistribution_permitted: false
+    note: The official portal does not publish explicit reuse terms for these records.
+
+permission:
+  status: author_reported_academic_research_reuse_authorized
+  basis: Direct permission reported by the project author; exact written terms remain private.
+  permission_record: .urbantwin/private/permissions/tfc_permission_record.md
+  public_redistribution_status: requires_exact_written_terms
+  note: Academic research and data reuse are authorized as reported by the project author. Do not publish source files or derived materials unless the retained written terms explicitly authorize that scope.
+
+observations:
+  timezone_status: unspecified_by_publisher
+  interval_minutes: 20
+  target: total observed vehicles across the 12 published vehicle classes
+  direction_codes: ["0", "1"]
+
+site_selection:
+  rule: Intersects the pre-existing Tahrir AOI and has complete same-day coverage in both directions
+  aoi_wgs84: [31.225, 30.038, 31.247, 30.053]
+  selected_name: 6th of October Bridge observed-link pair
+  selected_segment_ids:
+    - f1fb65b5-2338-4c97-9773-d48953c4f80e
+    - e71d5923-a1f2-47c3-8155-51efc3446673
+  selected_observation_date: "2024-10-31"
+  interpretation: Directional motorway link-flow and EO-context site; not a signal-control junction
+
+spatial:
+  projected_crs: EPSG:32636
+  inferred_site_link_distance_m: 250
+  inference_warning: Spatial site groups are reproducible analytical clusters, not publisher location IDs.
+  historic_eo_directory: data/observed/eo_2024
+  historic_eo_label: Sentinel-2 L2A 2024 context with WorldCover 2021 historic reference labels
+  current_osm_directory: data/observed/osm/current_tahrir
+  current_osm_role: Third-party current road geometry for GIS context and conservative map matching
+
+benchmark:
+  chronological_test_date_fraction: 0.20
+  bootstrap_replicates: 500
+  feature_sets: [time_only, spatial_only, combined]
+  models: [historical_mean, poisson, random_forest, histogram_gradient_boosting]
+  random_forest_trees: 160
+  histogram_gradient_boosting_iterations: 160
+  prediction_floor: 0.0
+
+scientific_gate:
+  allow_measured_demand_sumo: false
+  blockers:
+    - No intersection turning movements
+    - No observed signal phases or timings
+    - No defensible complete route or turning-demand matrix
+    - Selected observed link is a motorway bridge, not a verified signalized junction

@@ -61,6 +61,39 @@ def test_traffic_parser_supports_resume_and_optional_mlflow(tmp_path):
     assert args.mlflow_tracking_uri == "sqlite:///tracking.db"
 
 
+def test_observed_parsers_support_current_roads_and_tracking(tmp_path):
+    roads = cli._parser().parse_args(
+        [
+            "observed-roads",
+            "--study-dir",
+            str(tmp_path / "study"),
+            "--output-dir",
+            str(tmp_path / "roads"),
+            "--pbf",
+            str(tmp_path / "egypt.osm.pbf"),
+            "--retry-attempts",
+            "2",
+        ]
+    )
+    study = cli._parser().parse_args(
+        [
+            "observed-study",
+            "--road-dir",
+            str(tmp_path / "roads"),
+            "--resume",
+            "--mlflow",
+        ]
+    )
+
+    assert roads.study_dir == tmp_path / "study"
+    assert roads.output_dir == tmp_path / "roads"
+    assert roads.pbf == tmp_path / "egypt.osm.pbf"
+    assert roads.retry_attempts == 2
+    assert study.road_dir == tmp_path / "roads"
+    assert study.resume is True
+    assert study.mlflow is True
+
+
 def test_cli_reports_interruption_and_returns_130(monkeypatch, capsys):
     def interrupted(_args):
         raise KeyboardInterrupt

@@ -1,17 +1,36 @@
 # Results and evaluation integrity
 
-No research results have been pre-populated in this repository.
+Generated experiment outputs are ignored by Git by default. The current validated local working
+copy contains three scientifically distinct result families:
 
-Run:
+1. `results/geoai/`: real Sentinel-2/WorldCover 2021 agreement benchmarks (`data_kind: real`).
+2. `results/observed_traffic/`: measured TfC 2024 directional-link characterization and the frozen
+   joint future-date/unseen-inferred-site benchmark (`data_kind: real_observed_traffic_analysis`).
+3. `results/traffic/`: the completed 198-request abstract SUMO comparison
+   (`data_kind: simulation_abstract`). It is not measured Cairo demand.
 
-1. `urbantwin eo-fetch`
-2. `urbantwin geo-train` -> aggregate/split GeoAI metrics, per-class confusion matrices, unsupported-class reporting, and input hashes.
-3. `urbantwin roads` -> `results/roads.json`.
-4. `urbantwin traffic-run` -> metrics, paired-seed summaries, and simulator provenance under `results/traffic/`.
-5. `urbantwin report` -> `reports/generated_research_report.pdf` plus its provenance sidecar.
+The observed study is reproduced with:
 
-The generated outputs are ignored by Git by default because they may be large, machine-specific or contain licensed data. Outputs retain the exact `data_kind` labels `real`, `synthetic`, `simulation_abstract`, or `simulation_external_user_network`. **After verifying genuine measurements and checking data sharing terms**, explicitly add only aggregate CSVs, figures, and a redacted provenance report (without signed asset URLs), e.g. `git add -f results/geoai/geoai_metrics.csv`.
+```powershell
+urbantwin observed-study --resume --mlflow
+urbantwin observed-report
+```
 
-`results/demo/` contains SYNTHETIC fixtures and synthetic benchmark outputs. Never use those scores as authentic research evidence. `results/traffic_quick/` contains low-budget quick simulations and should not be presented as a full study.
+Its strict validator binds the official source hashes, normalized manifest, configuration, split,
+predictions, aggregate metrics, figures and source labels. Measurement-free volume estimation and
+online persistence are different information budgets and must not be compared as if they used the
+same inputs. The measured-demand signal-control phase is **NOT RUN**: the release lacks turning
+movements, complete routes and observed signal timing.
 
-SUMO simulation does not automatically imply real-world improvement; the generated network is abstract.
+`results/demo/` contains synthetic software fixtures. `results/traffic_quick/` contains low-budget
+simulator smoke results. Neither is empirical evidence. The full `results/traffic/` bundle is also
+simulator-only: modeled CO₂ is not an environmental measurement, and no abstract SUMO result is a
+calibrated Greater Cairo controller result.
+
+TfC did not publish an explicit license with the audited records. The project author reports direct
+TfC permission for academic research and data reuse, but this is not an open license and the exact
+public-redistribution scope must be read from the private permission record. Keep raw and row-level
+traffic data, measured maps and reports local unless those exact terms permit the intended release.
+Only expressly permitted compact aggregates and redacted provenance should ever be forced into Git.
+Do not commit private correspondence, large rasters, source archives, local MLflow SQLite files,
+caches, secrets or signed STAC asset URLs.
