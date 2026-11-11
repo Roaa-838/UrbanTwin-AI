@@ -27,10 +27,8 @@ simulator smoke results. Neither is empirical evidence. The full `results/traffi
 simulator-only: modeled CO₂ is not an environmental measurement, and no abstract SUMO result is a
 calibrated Greater Cairo controller result.
 
-TfC did not publish an explicit license with the audited records. The project author reports direct
-TfC permission for academic research and data reuse, but this is not an open license and the exact
-public-redistribution scope must be read from the private permission record. Keep raw and row-level
-traffic data, measured maps and reports local unless those exact terms permit the intended release.
-Only expressly permitted compact aggregates and redacted provenance should ever be forced into Git.
-Do not commit private correspondence, large rasters, source archives, local MLflow SQLite files,
-caches, secrets or signed STAC asset URLs.
+TfC did not publish an explicit record-level license with the audited records. Public access is not
+treated as an open-license grant. Keep raw and row-level traffic data, measured maps and reports local
+unless documented publisher terms provide a legal basis for the intended release. Only expressly
+permitted compact aggregates and redacted provenance should ever be forced into Git. Do not commit
+large rasters, source archives, local MLflow SQLite files, caches, secrets or signed STAC asset URLs.

@@ -40,8 +40,8 @@ EXPECTED = [
     "src/urbantwin/visualization/dashboard.py",
     "docs/real_data_feasibility.md",
     "docs/observed_traffic_case_study.md",
-    "docs/publication_scope.md",
-    "docs/portfolio_summary.md",
+    "docs/DATA_SOURCES.md",
+    "docs/REPRODUCIBILITY.md",
     "notebooks/03_observed_traffic_measurements.ipynb",
     "notebooks/04_observed_traffic_benchmark.ipynb",
     "reports/research_report.pdf",
@@ -163,13 +163,13 @@ required_case_phrases = (
 if any(phrase not in case_study for phrase in required_case_phrases):
     fail("Research case study does not preserve executed/blocked evidence boundaries")
 required_readme_phrases = (
-    "real_observed_traffic_analysis",
-    "measured-demand signal",
+    "measured traffic observations",
+    "controlled traffic simulation",
     "not a calibrated",
-    "urbantwin-observed-traffic",
+    "earth observation",
 )
 if any(phrase not in readme for phrase in required_readme_phrases):
-    fail("README does not document the observed study and its scientific gate")
+    fail("README does not preserve observed/simulated evidence boundaries")
 if "not yet generated" not in report:
     fail("Tracked methodology report must remain explicit about its static status")
 

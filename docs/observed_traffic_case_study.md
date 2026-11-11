@@ -31,7 +31,7 @@ The primary measured inputs are the official TfC records established in the feas
 
 The validated count archive has SHA-256 `d90703a022b2cad08e0533a4d9538236e45034c2fe260673a08c6995a56bbd7b`; the location archive has SHA-256 `d8b8e329be14b2c008460e7caed55c3dc820dc151119f4d0d37fa4a6070b42b1`. The normalized bundle contains 6,618 wide interval rows and 79,416 long class-count rows. Its `data_kind` is `real_observed_traffic`.
 
-TfC names itself as the attribution party, and the portal record had no explicit license identifier or reuse terms at audit time. The project author subsequently reported receiving direct TfC permission to continue this academic research and reuse the data. This is authorization for the reported research use, not evidence that TfC placed the records under an open-source or open-data license. Because the exact permission text is stored privately and its public-redistribution scope has not been established in this repository, source files, row-level normalized data, derived measured maps and generated reports remain local and Git-ignored unless the recorded terms expressly permit a particular publication.
+TfC names itself as the attribution party, and the portal record had no explicit license identifier or reuse terms at audit time. Public access is not treated as an open-source or open-data license. Source files, row-level normalized data, derived measured maps and generated reports therefore remain local and Git-ignored unless documented publisher terms provide a legal basis for the intended redistribution.
 
 The source does not provide a timezone, an interval-level sample-validity flag, or a legend mapping direction codes `0` and `1` to inbound/outbound. The pipeline records these facts as `unspecified_by_publisher`, `not_provided_by_source`, and undefined direction semantics instead of inventing values.
 
@@ -132,7 +132,7 @@ Accordingly, this study does not construct an OSM-network signal scenario, infer
 
 ## Limitations and technical risks
 
-- TfC directly authorized the author-reported academic research and data reuse, but the portal still provides no open license and the exact permission must be checked before any public redistribution of source or derived material.
+- The portal provides no explicit record-level open license; public access alone does not authorize redistribution of source or derived material.
 - The published “60 locations” cannot be reconstructed from an official key; the 60 analytical groups are proximity-derived.
 - All directional segments were observed on only one date, confounding date and site in the final split.
 - Survey schedules are heterogeneous, and the source does not provide sample-validity flags or timezone.
@@ -149,18 +149,17 @@ The release contains road-link aggregates rather than individual trajectories, b
 
 ## Reproducibility
 
-The local normalized and benchmark bundles bind every artifact to SHA-256 hashes, source record IDs, the configuration hash, split hashes, code revision and source labels. The authoritative configuration is `configs/observed_traffic.yaml`; normalized files are kept under ignored `data/observed/`, and results under ignored `results/observed_traffic/` while the exact public-redistribution scope of TfC's direct permission is recorded and reviewed.
+The local normalized and benchmark bundles bind every artifact to SHA-256 hashes, source record IDs, the configuration hash, split hashes, code revision and source labels. The authoritative configuration is `configs/observed_traffic.yaml`; normalized files are kept under ignored `data/observed/`, and results under ignored `results/observed_traffic/`. Any redistribution requires a documented legal basis under the applicable publisher terms.
 
 The executed local bundle records its configuration, split, EO stack, current-OSM manifest, source
-archives, code revision and every result artifact by SHA-256. The authoritative current values and
-compatible `UrbanTwin-Observed-Traffic` run ID are read from the validated local provenance and
-MLflow association. Historical runs remain immutable and are not relabeled to claim a cleaner Git
-state.
+archives, code revision and every result artifact by SHA-256. Experiment-tracking metadata is
+accepted only when it matches the same source, configuration, split, artifact and code provenance.
+Historical records remain immutable.
 
 From Windows PowerShell 5.1 with Python 3.12 and legitimate local downloads:
 
 ```powershell
-Set-Location "D:\UrbanTwin-AI\UrbanTwin-AI"
+# Run from the UrbanTwin-AI repository root.
 .\.venv\Scripts\Activate.ps1
 
 urbantwin observed-data-audit `
@@ -184,7 +183,7 @@ Use new output-directory names for repeated runs; the preparation and benchmark 
 
 ## Attribution
 
-- Transport for Cairo (TfC): 2024 traffic counts and traffic survey locations, used under direct academic research/data-reuse permission reported by the project author; no open license or unrecorded redistribution right is claimed.
+- Transport for Cairo (TfC): 2024 traffic counts and traffic survey locations. The audited portal metadata stated no explicit record-level open license, and no unrecorded redistribution right is claimed.
 - Contains modified Copernicus Sentinel data 2024.
 - © ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium. WorldCover 2021 is provided under CC BY 4.0.
 - Road data © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), available under ODbL 1.0.
