@@ -19,11 +19,9 @@ jobs:
         run: python -m pip check
       - name: Run Ruff
         run: python -m ruff check .
-      - name: Run offline tests
-        run: python -m pytest -q \
-              --cov=urbantwin \
-              --cov-report=xml \
-              --cov-report=term-missing
+      - name: Run tests and generate coverage
+        run: python -m pytest -q --cov=urbantwin --cov-report=xml:coverage.xml --cov-report=term-missing
+
       - name: Verify release structure
         run: python scripts/verify_release.py
 
