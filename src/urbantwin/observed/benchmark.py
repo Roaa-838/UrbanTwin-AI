@@ -620,10 +620,10 @@ def run_observed_benchmark(
             "Observed config requires benchmark, spatial, site_selection, and permission mappings"
         )
     if permission.get("status") != "author_reported_academic_research_reuse_authorized":
-        raise ValueError("Observed config does not record author-reported academic reuse permission")
+        raise ValueError("Observed config does not record the frozen dataset-reuse status")
     if permission.get("public_redistribution_status") != "requires_exact_written_terms":
         raise ValueError(
-            "Observed config must not infer public redistribution rights from academic reuse permission"
+            "Observed config must not infer public redistribution rights from its reuse status"
         )
     source_manifest_path = study_dir / "source_manifest.json"
     source_manifest = _read_json(source_manifest_path)
@@ -1063,8 +1063,8 @@ def run_observed_benchmark(
                 "EO descriptors do not enter the multi-site prediction benchmark.",
                 "Current OSM context is third-party map data, not a 2024 traffic observation.",
                 (
-                    "Academic research reuse permission is author-reported; public "
-                    "redistribution depends on the exact written terms retained privately."
+                    "The portal metadata states no explicit record-level open license; public "
+                    "redistribution requires a documented legal basis under publisher terms."
                 ),
                 "No measured-demand signal-control SUMO experiment was run.",
             ],

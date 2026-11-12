@@ -69,11 +69,11 @@ calibration, GA/PSO comparisons on Cairo geometry and any real-world improvement
 
 - Count archive SHA-256: `d90703a022b2cad08e0533a4d9538236e45034c2fe260673a08c6995a56bbd7b`.
 - Survey-location archive SHA-256: `d8b8e329be14b2c008460e7caed55c3dc820dc151119f4d0d37fa4a6070b42b1`.
-- The compatible observed run ID and clean code revision are stored in the validated local
-  provenance/association record for `UrbanTwin-Observed-Traffic`, not hardcoded in this document.
-- TfC attribution is recorded. The project author reports direct TfC permission for this academic
-  research and data reuse; this is not an open license. Source and row-level derivatives remain
-  Git-ignored until the private permission record confirms the intended public-redistribution scope.
+- Local experiment associations are accepted only after source, configuration, split, artifact and
+  code-provenance validation.
+- TfC attribution is recorded. The audited portal metadata states no explicit record-level open
+  license. Source and row-level derivatives remain Git-ignored unless documented publisher terms
+  provide a legal basis for the intended redistribution.
 - The release contains aggregate link counts, not identifiable trajectories. Results must not be
   used for automated enforcement, neighborhood ranking or controller deployment.
 - EO/road descriptors are descriptive associations. No causal land-use effect is inferred.

@@ -34,20 +34,20 @@ Official announcement short links:
 - [vehicle occupancy](https://lnkd.in/eQtmHsgi) to document 192;
 - [survey locations](https://lnkd.in/efHPjC2T) to dataset 193.
 
-No account, registration, authenticated cookie, or signed asset URL was required. The API advertises anonymous view and download permission. The portal metadata gives the attribution `Transport for Cairo (TfC)` and describes the observations as raw, unfactored, unannualized, and not seasonally adjusted. All three records have portal publication metadata dated 2026-10-19; the observed data span 2024.
+No account, registration, authenticated cookie, or signed asset URL was required. The API provides anonymous view and download access. The portal metadata gives the attribution `Transport for Cairo (TfC)` and describes the observations as raw, unfactored, unannualized, and not seasonally adjusted. All three records have portal publication metadata dated 2026-10-19; the observed data span 2024.
 
 ### License status
 
 The announcement and portal describe the records as open data, but each of the three API records has an empty `license.identifier`; the constraints field is also blank. TfC's general open-data policy is not a substitute for a record-specific legal grant. A Creative Commons license used by a different TfC project must not be transferred to these records by assumption.
 
-**Permission update:** after this feasibility audit, the project author reported receiving direct TfC permission to continue the academic UrbanTwin-AI research and reuse the data. The original communication and personal contact details remain private. This author-reported permission supersedes the earlier conclusion that no research-reuse authorization had been obtained, but it does not convert the records into openly licensed data or establish public redistribution rights that are not present in the exact message.
+The portal records did not state a record-level license or explicit reuse terms. Anonymous access and public download do not establish an open license. Users must obtain the records from the official portal and follow the applicable terms; written clarification is required before any redistribution not expressly covered by those terms.
 
 Therefore:
 
 - inspection and validation of the public downloads were possible;
 - attribution to TfC is required by the record metadata;
-- academic research and data reuse are authorized according to the project author's report;
-- the portal license remains unspecified, and public redistribution of source files, normalized rows, derived maps, aggregate results, PDFs or GitHub artifacts requires checking the exact private permission terms;
+- the portal license remains unspecified, so this audit does not infer rights to redistribute source files, normalized rows, derived maps, aggregate results, PDFs or GitHub artifacts;
+- any reuse or redistribution requires a documented legal basis under the applicable publisher terms;
 - no open-source, Creative Commons or general public-redistribution license is inferred.
 
 The repository contains no copied TfC record or real-data fixture. Offline tests use generated toy records.
@@ -202,7 +202,7 @@ A single bounded Overpass query checked current `highway=traffic_signals` nodes 
 
 ### Reproducible site decision
 
-For a **link-flow and EO-context study**, provisionally select rank 1, the 6th of October Bridge pair, because it is the only supplied site cluster that intersects the existing AOI and it has same-day, full-day coverage in both direction codes. This rule uses location and measurement completeness only; it does not inspect any model outcome. The physical-site interpretation remains provisional until TfC confirms the grouping. Academic research reuse is author-reported as authorized; any public release still depends on the exact private permission terms covering that publication category.
+For a **link-flow and EO-context study**, provisionally select rank 1, the 6th of October Bridge pair, because it is the only supplied site cluster that intersects the existing AOI and it has same-day, full-day coverage in both direction codes. This rule uses location and measurement completeness only; it does not inspect any model outcome. The physical-site interpretation remains provisional until TfC confirms the grouping. Any public release requires a documented legal basis under the applicable record-level terms.
 
 For an **intersection-control study**, select no site yet. Rank 1 is a motorway bridge, not an at-grade controlled junction. The nearest non-motorway candidates lack verified signal proximity, and the TfC files lack turning movements and signal timing. A suitable intersection requires a publisher/agency site key, field-checked geometry, controller/timing records, and movement-level counts.
 
@@ -292,15 +292,15 @@ urbantwin observed-data-audit `
 
 The command emits a deterministic JSON summary with input hashes, schema and cardinality checks, missingness, dates, directions, duplicate intervals, geometry validity, and join anomalies. Warnings such as the five OSM-ID conflicts remain visible; the validator does not repair source data.
 
-The full occupancy archive can be downloaded manually from [document 192](https://data.transportforcairo.com/catalogue/#/document/192) only when the exact recorded permission covers that research use. It is intentionally outside the current validator because the full table and its mixed-unit domain have not yet passed an exact audit.
+The full occupancy archive can be obtained manually from [document 192](https://data.transportforcairo.com/catalogue/#/document/192) subject to the applicable publisher terms. It is intentionally outside the current validator because the full table and its mixed-unit domain have not yet passed an exact audit.
 
-`data/observed/` and ZIP archives are ignored by Git. Record hashes, retrieval UTC timestamps, source record IDs, the portal-license status and the author-reported permission basis in a separate provenance manifest. Do not commit the raw records unless the exact recorded terms permit redistribution and the project intentionally adopts that policy.
+`data/observed/` and ZIP archives are ignored by Git. Record hashes, retrieval UTC timestamps, source record IDs, portal-license status and the applicable reuse basis in a separate provenance manifest. Do not commit the raw records unless documented terms permit redistribution and the project intentionally adopts that policy.
 
 ## Required publisher or field follow-up
 
 Before downstream modeling, request or verify:
 
-1. the exact scope, restrictions and required attribution of TfC's direct permission, including whether public source or derived-artifact redistribution is allowed;
+1. the record-level reuse scope, restrictions and required attribution, including whether public source or derived-artifact redistribution is allowed;
 2. the original 60-location identifier and survey-point geometry;
 3. a direction-code legend for `0` and `1`, plus the observation timezone;
 4. correction or explanation of the five `osm_id` conflicts and three geometry-only segments;
@@ -314,7 +314,7 @@ If these cannot be obtained, retain the work as an observed link-flow/EO context
 
 ## Recommended next implementation steps
 
-1. Record TfC's direct permission privately and obtain any remaining clarification about public redistribution and the join/site-key issues.
+1. Obtain written clarification of any unresolved record-level reuse, redistribution and join/site-key terms.
 2. Run the offline validator on locally downloaded official files and archive its hash-only summary outside authoritative research results.
 3. Freeze the link-flow site rule or, if genuine controller data becomes available, preregister a separate intersection-site rule before model evaluation.
 4. Acquire 2024 Sentinel-2 context for that site/date under the existing real-data provenance protocol.
@@ -324,4 +324,4 @@ If these cannot be obtained, retain the work as an observed link-flow/EO context
 
 ## Phase conclusion
 
-Actual Cairo traffic-count records and their directional road geometries were accessed and validated. Anonymous download works, and the project author reports direct TfC permission for academic research and data reuse. The portal still provides no open license, and public redistribution depends on the exact private permission terms. A provisional link-flow/EO site can be selected reproducibly, subject to publisher confirmation of the physical grouping. A matching signal-controlled study intersection, genuine connected simulation-ready road network, turning-flow observations, and controller timing were **not verified**. Downstream traffic modeling stops at this gate.
+Actual Cairo traffic-count records and their directional road geometries were accessed and validated. Anonymous download works, but the portal provides no explicit record-level open license; this audit therefore establishes no source or derived-material redistribution right. A provisional link-flow/EO site can be selected reproducibly, subject to publisher confirmation of the physical grouping. A matching signal-controlled study intersection, genuine connected simulation-ready road network, turning-flow observations, and controller timing were **not verified**. Downstream traffic modeling stops at this gate.
