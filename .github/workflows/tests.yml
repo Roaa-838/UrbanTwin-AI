@@ -14,12 +14,20 @@ jobs:
           python-version: '3.12'
           cache: pip
       - name: Install package and complete offline test dependencies
-        run: python -m pip install -e '.[all,mlflow]'
+        run: python -m pip install -e '.[all,mlflow]' pytest-cov
       - name: Check installed dependencies
         run: python -m pip check
       - name: Run Ruff
         run: python -m ruff check .
       - name: Run offline tests
-        run: python -m pytest -q
+        run: python -m pytest -q \
+              --cov=urbantwin \
+              --cov-report=xml \
+              --cov-report=term-missing
       - name: Verify release structure
         run: python scripts/verify_release.py
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}

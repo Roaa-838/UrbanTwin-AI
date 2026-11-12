@@ -38,3 +38,8 @@ tmp/pdfs/
 /mlartifacts/
 .DS_Store
 Thumbs.db
+# Coverage reports
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
