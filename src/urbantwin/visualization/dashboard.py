@@ -276,7 +276,49 @@ def _observed_eo_section() -> None:
         observed = _load_verified_observed()
         if observed is not None:
             context_path = Path(observed["output_dir"]) / "historic_eo_context.json"
-            context = pd.DataFrame(json.loads(context_path.read_text(encoding="utf-8")))
+            try:
+                context_records = json.loads(context_path.read_text(encoding="utf-8"))
+            except OSError as exc:
+                st.error(
+                    f"Observed-link EO context artifact is unavailable: {exc}",
+                    icon=":material/error:",
+                )
+                return
+            except (UnicodeError, json.JSONDecodeError) as exc:
+                st.error(
+                    f"Observed-link EO context artifact is invalid JSON: {exc}",
+                    icon=":material/error:",
+                )
+                return
+            if not isinstance(context_records, list):
+                st.error(
+                    "Observed-link EO context artifact must contain a JSON list.",
+                    icon=":material/error:",
+                )
+                return
+            if not context_records:
+                st.info(
+                    "No retrospective observed-link EO context is present in this bundle.",
+                    icon=":material/info:",
+                )
+                return
+            context = pd.DataFrame(context_records)
+            context_columns = [
+                "buffer_m",
+                "valid_pixel_coverage",
+                "mean_ndvi",
+                "mean_ndbi",
+                "worldcover_built_up_fraction",
+                "worldcover_vegetated_fraction",
+            ]
+            missing_columns = sorted(set(context_columns) - set(context.columns))
+            if missing_columns:
+                st.error(
+                    "Observed-link EO context artifact lacks required columns: "
+                    + ", ".join(missing_columns),
+                    icon=":material/error:",
+                )
+                return
             st.subheader("Selected observed-link context")
             st.caption(
                 "Buffers around the selected 6th of October Bridge links use real Sentinel-2 L2A "
@@ -286,16 +328,7 @@ def _observed_eo_section() -> None:
                 "descriptors are not causal traffic predictors."
             )
             st.dataframe(
-                context[
-                    [
-                        "buffer_m",
-                        "valid_pixel_coverage",
-                        "mean_ndvi",
-                        "mean_ndbi",
-                        "worldcover_built_up_fraction",
-                        "worldcover_vegetated_fraction",
-                    ]
-                ],
+                context[context_columns],
                 width="stretch",
                 hide_index=True,
                 alt=(
@@ -308,18 +341,6 @@ def _observed_eo_section() -> None:
 def _observed_traffic_section() -> None:
     st.header("Measured Cairo traffic", icon=":material/traffic:")
     st.badge("Measured directional link counts", color="green", icon=":material/verified:")
-    bundle = _load_verified_observed()
-    if bundle is None:
-        st.warning(
-            "No complete provenance-verified observed study. Prepare the official local files "
-            "and run `urbantwin observed-study`.",
-            icon=":material/folder_off:",
-        )
-        return
-
-    provenance = bundle["provenance"]
-    split = bundle["split_manifest"]
-    license_record = bundle["source_manifest"]["license"]
     st.caption(
         "Source label: measured TfC directional link counts (2024). Geometry: TfC-released, "
         "OSM-derived survey lines from a 2026 extract."
@@ -331,44 +352,21 @@ def _observed_traffic_section() -> None:
         title="Dataset reuse terms",
         icon=":material/license:",
     )
-    if not PUBLICATION_SAFE:
-        summary = st.columns(4)
-        summary[0].metric(
-            "Measured intervals",
-            f"{int(bundle['source_manifest']['row_counts']['counts_wide']):,}",
-        )
-        summary[1].metric(
-            "Observed vehicles",
-            f"{int(bundle['vehicle_classes']['observed_vehicles'].sum()):,}",
-        )
-        summary[2].metric(
-            "Inferred site groups",
-            str(int(split["train_inferred_sites"]) + int(split["test_inferred_sites"])),
-        )
-        summary[3].metric("Portal license", str(license_record["status"]).replace("_", " "))
-
-    with st.container(border=True):
-        st.subheader("Joint evaluation protocol")
-        if PUBLICATION_SAFE:
+    if PUBLICATION_SAFE:
+        with st.container(border=True):
+            st.subheader("Joint evaluation protocol")
             st.markdown(
                 "Development uses training-only grouped cross-validation. The final holdout "
                 "combines later survey dates with unseen inferred sites."
             )
-        else:
-            st.markdown(
-                f"Training uses **{split['train_rows']:,}** eligible intervals from "
-                f"**{split['train_inferred_sites']}** inferred sites. The frozen holdout uses "
-                f"**{split['test_rows']:,}** intervals from **{split['test_inferred_sites']}** "
-                "unseen inferred sites."
+            st.warning(
+                "Date and inferred site are confounded because every directional segment was "
+                "surveyed on one date; this is not separate temporal or geographic validation.",
+                icon=":material/warning:",
             )
-        st.warning(str(split["warning"]), icon=":material/warning:")
-        st.caption(
-            "Each directional segment was observed on one date, so date and site effects are "
-            "confounded. This is one joint shift, not independent temporal and geographic "
-            "validation. Static road attributes use TfC-released OSM-derived 2026 geometry."
-        )
-
-    if PUBLICATION_SAFE:
+            st.caption(
+                "Static road attributes use TfC-released OSM-derived 2026 geometry."
+            )
         st.info(
             "Publication-safe mode omits TfC-derived totals, maps, site/class tables, and exact "
             "model results. Set `URBANTWIN_PUBLICATION_SAFE=0` only for a non-public local review "
@@ -383,6 +381,54 @@ def _observed_traffic_section() -> None:
             "gain is claimed."
         )
         return
+
+    bundle = _load_verified_observed()
+    if bundle is None:
+        st.warning(
+            "No complete provenance-verified observed study. Prepare the official local files "
+            "and run `urbantwin observed-study`.",
+            icon=":material/folder_off:",
+        )
+        return
+
+    provenance = bundle["provenance"]
+    split = bundle["split_manifest"]
+    license_record = bundle["source_manifest"]["license"]
+    summary = st.columns(4)
+    summary[0].metric(
+        "Measured intervals",
+        f"{int(bundle['source_manifest']['row_counts']['counts_wide']):,}",
+    )
+    summary[1].metric(
+        "Observed vehicles",
+        f"{int(bundle['vehicle_classes']['observed_vehicles'].sum()):,}",
+    )
+    summary[2].metric(
+        "Inferred site groups",
+        str(int(split["train_inferred_sites"]) + int(split["test_inferred_sites"])),
+    )
+    summary[3].metric("Portal license", str(license_record["status"]).replace("_", " "))
+
+    with st.container(border=True):
+        st.subheader("Joint evaluation protocol")
+        st.markdown(
+            f"Training uses **{split['train_rows']:,}** eligible intervals from "
+            f"**{split['train_inferred_sites']}** inferred sites. The frozen holdout uses "
+            f"**{split['test_rows']:,}** intervals from **{split['test_inferred_sites']}** "
+            "unseen inferred sites."
+        )
+        split_warning = split.get("warning")
+        if not isinstance(split_warning, str) or not split_warning.strip():
+            split_warning = (
+                "The frozen holdout combines future dates and unseen inferred sites; it is not "
+                "separate temporal or geographic validation."
+            )
+        st.warning(split_warning.strip(), icon=":material/warning:")
+        st.caption(
+            "Each directional segment was observed on one date, so date and site effects are "
+            "confounded. This is one joint shift, not independent temporal and geographic "
+            "validation. Static road attributes use TfC-released OSM-derived 2026 geometry."
+        )
 
     metrics = bundle["metrics"].copy()
     measurement_free = metrics.loc[

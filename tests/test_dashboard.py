@@ -9,8 +9,12 @@ import numpy as np
 import pytest
 from streamlit.testing.v1 import AppTest
 
+from tests.test_observed_artifacts import _observed_bundle
 from urbantwin.common import sha256_file
-from urbantwin.observed.artifacts import ObservedArtifactIntegrityError
+from urbantwin.observed.artifacts import (
+    ObservedArtifactIntegrityError,
+    validate_observed_artifacts,
+)
 from urbantwin.visualization import dashboard
 
 DASHBOARD = (
@@ -162,6 +166,25 @@ def _render_section(section: str) -> AppTest:
         return app.run()
 
 
+def _dashboard_script() -> None:
+    from urbantwin.visualization.dashboard import main
+
+    main()
+
+
+def _synthetic_raster() -> tuple[np.ndarray, np.ndarray, dict]:
+    labels = np.ones((2, 2), dtype=np.uint8)
+    provenance = {
+        "valid_pixel_count": 4,
+        "grid_pixel_count": 4,
+        "configuration": {"sentinel_period": ["2024-10-24", "2024-11-03"]},
+        "width": 2,
+        "height": 2,
+        "crs": "EPSG:32636",
+    }
+    return np.zeros((5, 2, 2), dtype=np.float32), labels, provenance
+
+
 def test_dashboard_renders_scientific_gate_without_local_artifacts() -> None:
     app = _render_section("Measured-demand simulation")
 
@@ -180,8 +203,182 @@ def test_dashboard_missing_artifacts_render_actionable_states() -> None:
 
     assert not measured.exception
     assert measured.header[0].value == "Measured Cairo traffic"
-    assert any("No complete provenance-verified" in item.value for item in measured.warning)
+    assert any("Publication-safe mode omits" in item.value for item in measured.info)
 
     assert not abstract.exception
     assert abstract.header[0].value == "Existing abstract SUMO experiment"
     assert any("No complete provenance-verified" in item.value for item in abstract.warning)
+
+
+def test_non_public_measured_section_renders_missing_bundle_state() -> None:
+    with (
+        patch.object(dashboard, "PUBLICATION_SAFE", False),
+        patch.object(dashboard, "_load_raster", return_value=None),
+        patch.object(dashboard, "_load_verified_observed", return_value=None),
+    ):
+        app = AppTest.from_function(_dashboard_script, default_timeout=20).run()
+        app.get_by_key("research_section").set_value("Measured Cairo traffic").run()
+
+    assert not app.exception
+    assert app.header[0].value == "Measured Cairo traffic"
+    assert any("No complete provenance-verified" in item.value for item in app.warning)
+
+
+def test_non_public_measured_section_renders_verified_synthetic_bundle(
+    tmp_path: Path,
+) -> None:
+    output = _observed_bundle(tmp_path)
+    bundle = validate_observed_artifacts(tmp_path, output)
+    assert bundle is not None
+    with (
+        patch.object(dashboard, "PUBLICATION_SAFE", False),
+        patch.object(dashboard, "_load_raster", return_value=None),
+        patch.object(dashboard, "_load_verified_observed", return_value=bundle),
+    ):
+        app = AppTest.from_function(_dashboard_script, default_timeout=20).run()
+        app.get_by_key("research_section").set_value("Measured Cairo traffic").run()
+
+    assert not app.exception
+    assert app.header[0].value == "Measured Cairo traffic"
+    metrics = {item.label: item.value for item in app.metric}
+    assert metrics["Measured intervals"] == "7"
+    assert metrics["Observed vehicles"] == "78"
+    assert metrics["Inferred site groups"] == "6"
+    assert metrics["Eligible intervals"] == "1"
+    assert app.table
+    assert app.dataframe
+    assert len(app.image) == 2
+
+
+def test_dashboard_section_control_navigates_and_renders_each_section() -> None:
+    with (
+        patch.object(dashboard, "PUBLICATION_SAFE", True),
+        patch.object(dashboard, "_load_raster", return_value=None),
+        patch.object(dashboard, "_load_verified_observed", return_value=None),
+        patch.object(dashboard, "validate_observed_road_bundle", return_value=None),
+        patch.object(dashboard, "validate_traffic_artifacts", return_value=None),
+    ):
+        app = AppTest.from_function(_dashboard_script, default_timeout=20).run()
+        assert not app.exception
+        assert app.header[0].value == "Observed Earth observation"
+
+        expected_headers = {
+            "Measured Cairo traffic": "Measured Cairo traffic",
+            "Measured-demand simulation": "Measured-demand simulation",
+            "Abstract simulation": "Existing abstract SUMO experiment",
+            "Observed EO": "Observed Earth observation",
+        }
+        for section, expected_header in expected_headers.items():
+            app.get_by_key("research_section").set_value(section).run()
+            assert not app.exception
+            assert app.header[0].value == expected_header
+
+
+def test_publication_safe_eo_section_never_loads_restricted_observed_bundle() -> None:
+    with (
+        patch.object(dashboard, "PUBLICATION_SAFE", True),
+        patch.object(dashboard, "_load_raster", return_value=_synthetic_raster()),
+        patch.object(dashboard, "_render_eo_map"),
+        patch.object(dashboard, "validate_geoai_artifacts", return_value=None),
+        patch.object(
+            dashboard,
+            "_load_verified_observed",
+            side_effect=AssertionError("restricted observed bundle was loaded"),
+        ) as observed_loader,
+    ):
+        app = AppTest.from_function(_dashboard_script, default_timeout=20).run()
+        assert not app.exception
+        app.get_by_key("research_section").set_value("Measured Cairo traffic").run()
+
+    assert not app.exception
+    assert app.header[0].value == "Measured Cairo traffic"
+    assert any("Publication-safe mode omits" in item.value for item in app.info)
+    observed_loader.assert_not_called()
+
+
+def test_non_public_eo_section_renders_valid_observed_context(tmp_path: Path) -> None:
+    context = [
+        {
+            "buffer_m": 50,
+            "valid_pixel_coverage": 0.9,
+            "mean_ndvi": 0.1,
+            "mean_ndbi": 0.2,
+            "worldcover_built_up_fraction": 0.7,
+            "worldcover_vegetated_fraction": 0.1,
+        }
+    ]
+    (tmp_path / "historic_eo_context.json").write_text(
+        json.dumps(context), encoding="utf-8"
+    )
+    with (
+        patch.object(dashboard, "PUBLICATION_SAFE", False),
+        patch.object(dashboard, "_load_raster", return_value=_synthetic_raster()),
+        patch.object(dashboard, "_render_eo_map"),
+        patch.object(dashboard, "validate_geoai_artifacts", return_value=None),
+        patch.object(
+            dashboard,
+            "_load_verified_observed",
+            return_value={"output_dir": str(tmp_path)},
+        ),
+    ):
+        app = AppTest.from_function(_dashboard_script, default_timeout=20).run()
+
+    assert not app.exception
+    assert any(item.value == "Selected observed-link context" for item in app.subheader)
+    assert len(app.dataframe) == 1
+    assert app.dataframe[0].value["buffer_m"].tolist() == [50]
+
+
+@pytest.mark.parametrize(
+    ("contents", "element", "message"),
+    [
+        (None, "error", "artifact is unavailable"),
+        ("{not-json", "error", "artifact is invalid JSON"),
+        (json.dumps({"buffer_m": 50}), "error", "must contain a JSON list"),
+        ("[]", "info", "No retrospective observed-link EO context"),
+        (json.dumps([{"buffer_m": 50}]), "error", "lacks required columns"),
+    ],
+)
+def test_non_public_eo_section_handles_missing_or_invalid_context_artifact(
+    tmp_path: Path,
+    contents: str | None,
+    element: str,
+    message: str,
+) -> None:
+    if contents is not None:
+        (tmp_path / "historic_eo_context.json").write_text(contents, encoding="utf-8")
+    with (
+        patch.object(dashboard, "PUBLICATION_SAFE", False),
+        patch.object(dashboard, "_load_raster", return_value=_synthetic_raster()),
+        patch.object(dashboard, "_render_eo_map"),
+        patch.object(dashboard, "validate_geoai_artifacts", return_value=None),
+        patch.object(
+            dashboard,
+            "_load_verified_observed",
+            return_value={"output_dir": str(tmp_path)},
+        ),
+    ):
+        app = AppTest.from_function(_dashboard_script, default_timeout=20).run()
+
+    assert not app.exception
+    rendered = getattr(app, element)
+    assert any(message in item.value for item in rendered)
+
+
+def test_non_public_eo_section_renders_observed_validation_failure() -> None:
+    with (
+        patch.object(dashboard, "PUBLICATION_SAFE", False),
+        patch.object(dashboard, "_load_raster", return_value=_synthetic_raster()),
+        patch.object(dashboard, "_render_eo_map"),
+        patch.object(dashboard, "validate_geoai_artifacts", return_value=None),
+        patch.object(
+            dashboard,
+            "_observed_bundle",
+            side_effect=ObservedArtifactIntegrityError("synthetic checksum mismatch"),
+        ),
+    ):
+        app = AppTest.from_function(_dashboard_script, default_timeout=20).run()
+
+    assert not app.exception
+    assert any("artifacts rejected" in item.value for item in app.error)
+    assert any("synthetic checksum mismatch" in item.value for item in app.error)
