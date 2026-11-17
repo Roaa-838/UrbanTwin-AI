@@ -9,7 +9,7 @@ import pytest
 from PIL import Image as PILImage
 from reportlab.pdfbase import pdfmetrics
 
-from tests.test_observed_artifacts import _observed_bundle
+from tests.test_observed_artifacts import _observed_bundle, _upgrade_to_canonical_bundle
 from urbantwin.cli import _parser
 from urbantwin.common import sha256_file
 from urbantwin.observed.artifacts import ObservedArtifactIntegrityError
@@ -195,6 +195,7 @@ def test_split_warning_preserves_manifest_text_and_has_safe_fallback() -> None:
 
 def test_publication_safe_report_generates_pdf_and_bound_sidecar(tmp_path: Path) -> None:
     observed = _observed_bundle(tmp_path)
+    _upgrade_to_canonical_bundle(tmp_path, observed)
     output = tmp_path / "reports" / "observed_methods.pdf"
 
     result = make_observed_report(
@@ -211,6 +212,8 @@ def test_publication_safe_report_generates_pdf_and_bound_sidecar(tmp_path: Path)
     assert sidecar["schema_version"] == "urbantwin.observed-report/v1"
     assert sidecar["publication_safe"] is True
     assert sidecar["data_kind"] == "publication_safe_methods_summary"
+    assert sidecar["config_hash_scheme"] == "urbantwin.config-canonical-json/v1"
+    assert len(sidecar["config_canonical_sha256"]) == 64
     assert sidecar["config_sha256"] == sha256_file(
         tmp_path / "configs" / "observed_traffic.yaml"
     )

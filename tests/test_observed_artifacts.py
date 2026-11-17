@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 from PIL import Image as PILImage
 
-from urbantwin.common import sha256_file
+from urbantwin.common import configuration_hash_record, load_yaml, sha256_file
 from urbantwin.observed.artifacts import (
     ObservedArtifactIntegrityError,
     validate_observed_artifacts,
@@ -356,6 +356,24 @@ def _observed_bundle(root: Path) -> Path:
     return output
 
 
+def _upgrade_to_canonical_bundle(root: Path, output: Path) -> None:
+    config_path = root / "configs" / "observed_traffic.yaml"
+    config_hashes = configuration_hash_record(config_path, load_yaml(config_path))
+    cv_path = output / "cv_split_manifest.json"
+    cv_manifest = json.loads(cv_path.read_text(encoding="utf-8"))
+    cv_manifest.update(config_hashes)
+    cv_manifest["schema_version"] = "urbantwin.observed-cv-split/v2"
+    cv_path.write_text(json.dumps(cv_manifest), encoding="utf-8")
+
+    provenance_path = output / "provenance.json"
+    provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+    provenance.update(config_hashes)
+    provenance["schema_version"] = "urbantwin.observed-benchmark/v3"
+    provenance["cv_split_manifest_sha256"] = sha256_file(cv_path)
+    provenance["artifact_hashes"]["cv_split_manifest.json"] = sha256_file(cv_path)
+    provenance_path.write_text(json.dumps(provenance), encoding="utf-8")
+
+
 def test_observed_validator_accepts_bound_bundle(tmp_path: Path) -> None:
     output = _observed_bundle(tmp_path)
 
@@ -367,6 +385,78 @@ def test_observed_validator_accepts_bound_bundle(tmp_path: Path) -> None:
     assert len(verified["cv_predictions"]) == 10
     assert verified["provenance"]["model_selection"]["model"] == "random_forest"
     assert verified["provenance"]["source_labels"]["simulation"].startswith("not run")
+
+
+def test_observed_validator_keeps_historical_v2_raw_hash_strict(tmp_path: Path) -> None:
+    output = _observed_bundle(tmp_path)
+    config_path = tmp_path / "configs" / "observed_traffic.yaml"
+    config_path.write_bytes(config_path.read_bytes() + b"\r\n")
+
+    with pytest.raises(ObservedArtifactIntegrityError, match="stale or mismatched"):
+        validate_observed_artifacts(tmp_path, output)
+
+
+def test_observed_validator_accepts_v3_across_line_endings(tmp_path: Path) -> None:
+    output = _observed_bundle(tmp_path)
+    config_path = tmp_path / "configs" / "observed_traffic.yaml"
+    config_path.write_bytes(
+        b"schema_version: synthetic-test-config\n"
+        b"permission:\n"
+        b"  status: author_reported_academic_research_reuse_authorized\n"
+        b"  public_redistribution_status: requires_exact_written_terms\n"
+    )
+    _upgrade_to_canonical_bundle(tmp_path, output)
+    config_path.write_bytes(config_path.read_bytes().replace(b"\n", b"\r\n"))
+
+    verified = validate_observed_artifacts(tmp_path, output)
+
+    assert verified is not None
+    assert verified["provenance"]["schema_version"] == "urbantwin.observed-benchmark/v3"
+
+
+def test_observed_validator_binds_v3_cv_manifest_to_canonical_hash(tmp_path: Path) -> None:
+    output = _observed_bundle(tmp_path)
+    _upgrade_to_canonical_bundle(tmp_path, output)
+    cv_path = output / "cv_split_manifest.json"
+    cv_manifest = json.loads(cv_path.read_text(encoding="utf-8"))
+    cv_manifest["config_canonical_sha256"] = "f" * 64
+    cv_path.write_text(json.dumps(cv_manifest), encoding="utf-8")
+
+    provenance_path = output / "provenance.json"
+    provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+    provenance["cv_split_manifest_sha256"] = sha256_file(cv_path)
+    provenance["artifact_hashes"]["cv_split_manifest.json"] = sha256_file(cv_path)
+    provenance_path.write_text(json.dumps(provenance), encoding="utf-8")
+
+    with pytest.raises(
+        ObservedArtifactIntegrityError,
+        match="grouped-CV manifest disagrees on config_canonical_sha256",
+    ):
+        validate_observed_artifacts(tmp_path, output)
+
+
+def test_observed_validator_rejects_v3_semantic_change_and_unknown_scheme(
+    tmp_path: Path,
+) -> None:
+    changed_root = tmp_path / "changed"
+    changed_output = _observed_bundle(changed_root)
+    _upgrade_to_canonical_bundle(changed_root, changed_output)
+    config_path = changed_root / "configs" / "observed_traffic.yaml"
+    configuration = json.loads(config_path.read_text(encoding="utf-8"))
+    configuration["schema_version"] = "scientifically-different-config"
+    config_path.write_text(json.dumps(configuration), encoding="utf-8")
+    with pytest.raises(ObservedArtifactIntegrityError, match="stale or mismatched"):
+        validate_observed_artifacts(changed_root, changed_output)
+
+    scheme_root = tmp_path / "unknown-scheme"
+    scheme_output = _observed_bundle(scheme_root)
+    _upgrade_to_canonical_bundle(scheme_root, scheme_output)
+    provenance_path = scheme_output / "provenance.json"
+    provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+    provenance["config_hash_scheme"] = "unknown/v9"
+    provenance_path.write_text(json.dumps(provenance), encoding="utf-8")
+    with pytest.raises(ObservedArtifactIntegrityError, match="stale or mismatched"):
+        validate_observed_artifacts(scheme_root, scheme_output)
 
 
 def test_observed_validator_rejects_corruption_and_stale_config(tmp_path: Path) -> None:
@@ -383,6 +473,20 @@ def test_observed_validator_rejects_corruption_and_stale_config(tmp_path: Path) 
     )
     with pytest.raises(ObservedArtifactIntegrityError, match="stale or mismatched"):
         validate_observed_artifacts(other_root, other_output)
+
+    source_root = tmp_path / "source-corruption"
+    source_output = _observed_bundle(source_root)
+    source_manifest = (
+        source_root
+        / "data"
+        / "observed"
+        / "tfc"
+        / "normalized_v1"
+        / "source_manifest.json"
+    )
+    source_manifest.write_bytes(source_manifest.read_bytes() + b"corrupt")
+    with pytest.raises(ObservedArtifactIntegrityError, match="source manifest hash mismatch"):
+        validate_observed_artifacts(source_root, source_output)
 
 
 def test_observed_mlflow_logs_and_reuses_completed_run(tmp_path: Path) -> None:
@@ -427,3 +531,19 @@ def test_observed_mlflow_logs_and_reuses_completed_run(tmp_path: Path) -> None:
     artifacts = client.list_artifacts(run.info.run_id, "verified_aggregates")
     assert artifacts
     assert mlflow.get_tracking_uri() == uri
+
+    canonical_root = tmp_path / "canonical"
+    canonical_output = _observed_bundle(canonical_root)
+    _upgrade_to_canonical_bundle(canonical_root, canonical_output)
+    canonical = track_observed_study(
+        canonical_output,
+        project_root=canonical_root,
+        tracking_uri=uri,
+        resume=True,
+    )
+    canonical_run = client.get_run(canonical["run_id"])
+    assert canonical["run_id"] != first["run_id"]
+    assert canonical_run.data.params["config_hash_scheme"] == (
+        "urbantwin.config-canonical-json/v1"
+    )
+    assert len(canonical_run.data.params["config_canonical_sha256"]) == 64
