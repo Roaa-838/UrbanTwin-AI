@@ -103,7 +103,7 @@ def _association_path(root: Path, compatibility: str, tracking_uri: str) -> Path
 
 def _compatibility_record(verified: dict[str, Any]) -> dict[str, Any]:
     provenance = verified["provenance"]
-    return {
+    record = {
         "source_counts_sha256": provenance["source_counts_sha256"],
         "source_locations_sha256": provenance["source_locations_sha256"],
         "source_manifest_sha256": provenance["source_manifest_sha256"],
@@ -115,6 +115,14 @@ def _compatibility_record(verified: dict[str, Any]) -> dict[str, Any]:
         "road_context": provenance.get("road_context"),
         "git": provenance["git"],
     }
+    if provenance.get("config_hash_scheme") is not None:
+        record.update(
+            {
+                "config_hash_scheme": provenance["config_hash_scheme"],
+                "config_canonical_sha256": provenance["config_canonical_sha256"],
+            }
+        )
+    return record
 
 
 def observed_run_association(
@@ -278,6 +286,13 @@ def track_observed_study(
             "measured_demand_sumo": "not_run",
             "sumo_blockers": provenance["study_gate"]["blockers"],
         }
+        if provenance.get("config_hash_scheme") is not None:
+            params.update(
+                {
+                    "config_hash_scheme": provenance["config_hash_scheme"],
+                    "config_canonical_sha256": provenance["config_canonical_sha256"],
+                }
+            )
         eo_context = provenance.get("eo_context") or {}
         road_context = provenance.get("road_context") or {}
         params.update(

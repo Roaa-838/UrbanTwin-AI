@@ -9,7 +9,17 @@ from typing import Any
 
 import pandas as pd
 
-from urbantwin.common import require_real_provenance, sha256_file
+from urbantwin.common import (
+    ConfigurationHashError,
+    require_real_provenance,
+    sha256_file,
+    validate_configuration_hash,
+)
+
+_LEGACY_PROVENANCE_SCHEMA = "urbantwin.observed-benchmark/v2"
+_CANONICAL_PROVENANCE_SCHEMA = "urbantwin.observed-benchmark/v3"
+_LEGACY_CV_SPLIT_SCHEMA = "urbantwin.observed-cv-split/v1"
+_CANONICAL_CV_SPLIT_SCHEMA = "urbantwin.observed-cv-split/v2"
 
 
 class ObservedArtifactIntegrityError(ValueError):
@@ -76,7 +86,14 @@ def validate_observed_artifacts(
             f"Observed result directory is incomplete: {output}"
         )
     provenance = _json_object(provenance_path)
-    if provenance.get("schema_version") != "urbantwin.observed-benchmark/v2":
+    provenance_schema = provenance.get("schema_version")
+    if provenance_schema == _LEGACY_PROVENANCE_SCHEMA:
+        config_hash_mode = "legacy_raw"
+        expected_cv_schema = _LEGACY_CV_SPLIT_SCHEMA
+    elif provenance_schema == _CANONICAL_PROVENANCE_SCHEMA:
+        config_hash_mode = "canonical_v1"
+        expected_cv_schema = _CANONICAL_CV_SPLIT_SCHEMA
+    else:
         raise ObservedArtifactIntegrityError("Observed provenance schema is incompatible")
     if provenance.get("data_kind") != "real_observed_traffic_analysis":
         raise ObservedArtifactIntegrityError("Observed results have the wrong data_kind")
@@ -217,10 +234,19 @@ def validate_observed_artifacts(
             )
 
     config_path = root / "configs" / "observed_traffic.yaml"
-    if not config_path.is_file() or sha256_file(config_path) != provenance.get("config_sha256"):
+    try:
+        validate_configuration_hash(
+            config_path,
+            provenance,
+            mode=config_hash_mode,
+            embedded_configuration=(
+                configuration if config_hash_mode == "canonical_v1" else None
+            ),
+        )
+    except ConfigurationHashError as exc:
         raise ObservedArtifactIntegrityError(
             "Observed results are stale or mismatched with configs/observed_traffic.yaml"
-        )
+        ) from exc
     source = (
         Path(source_dir).resolve()
         if source_dir is not None
@@ -316,7 +342,7 @@ def validate_observed_artifacts(
     cv_split_manifest = _json_object(cv_split_path)
     if sha256_file(cv_split_path) != provenance.get("cv_split_manifest_sha256"):
         raise ObservedArtifactIntegrityError("Observed grouped-CV split manifest hash mismatch")
-    if cv_split_manifest.get("schema_version") != "urbantwin.observed-cv-split/v1":
+    if cv_split_manifest.get("schema_version") != expected_cv_schema:
         raise ObservedArtifactIntegrityError("Observed grouped-CV split schema is incompatible")
     if cv_split_manifest.get("protocol") != "training_only_five_fold_grouped_oof":
         raise ObservedArtifactIntegrityError("Observed grouped-CV protocol is mislabeled")
@@ -350,12 +376,15 @@ def validate_observed_artifacts(
             raise ObservedArtifactIntegrityError(
                 "Observed grouped-CV fold sizes disagree with the training partition"
             )
-    for key in (
+    bound_keys = [
         "source_manifest_sha256",
         "source_counts_sha256",
         "source_locations_sha256",
         "config_sha256",
-    ):
+    ]
+    if config_hash_mode == "canonical_v1":
+        bound_keys.extend(["config_hash_scheme", "config_canonical_sha256"])
+    for key in bound_keys:
         if cv_split_manifest.get(key) != provenance.get(key):
             raise ObservedArtifactIntegrityError(
                 f"Observed grouped-CV manifest disagrees on {key}"

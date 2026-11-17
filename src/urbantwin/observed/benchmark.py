@@ -23,14 +23,15 @@ from sklearn.model_selection import GroupKFold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-from urbantwin.common import load_yaml, sha256_file
+from urbantwin.common import configuration_hash_record, load_yaml, sha256_file
 from urbantwin.observed.features import (
     build_analysis_table,
     historic_eo_context,
     spatial_segment_features,
 )
 
-SCHEMA_VERSION = "urbantwin.observed-benchmark/v2"
+SCHEMA_VERSION = "urbantwin.observed-benchmark/v3"
+CV_SPLIT_SCHEMA_VERSION = "urbantwin.observed-cv-split/v2"
 
 _TIME_NUMERIC = ["time_sin", "time_cos"]
 _TIME_CATEGORICAL = ["day_of_week"]
@@ -606,6 +607,7 @@ def run_observed_benchmark(
     if output_dir.exists():
         raise FileExistsError(f"Refusing to overwrite observed benchmark: {output_dir}")
     configuration = load_yaml(config_path)
+    config_hashes = configuration_hash_record(config_path, configuration)
     benchmark = configuration.get("benchmark")
     spatial = configuration.get("spatial")
     selection = configuration.get("site_selection")
@@ -760,7 +762,7 @@ def run_observed_benchmark(
     primary_selection = _training_cv_selection(cv_metrics)
     split_manifest["model_selection"] = primary_selection
     cv_split_manifest = {
-        "schema_version": "urbantwin.observed-cv-split/v1",
+        "schema_version": CV_SPLIT_SCHEMA_VERSION,
         "protocol": "training_only_five_fold_grouped_oof",
         "group_key": "inferred_site_id",
         "n_splits": 5,
@@ -772,7 +774,7 @@ def run_observed_benchmark(
         "source_manifest_sha256": sha256_file(source_manifest_path),
         "source_counts_sha256": source_manifest["sources"]["counts"]["sha256"],
         "source_locations_sha256": source_manifest["sources"]["locations"]["sha256"],
-        "config_sha256": sha256_file(config_path),
+        **config_hashes,
         "model_selection": primary_selection,
         "folds": cv_split_folds,
         "leakage_controls": [
@@ -1005,7 +1007,7 @@ def run_observed_benchmark(
             "source_manifest_sha256": sha256_file(source_manifest_path),
             "source_counts_sha256": source_manifest["sources"]["counts"]["sha256"],
             "source_locations_sha256": source_manifest["sources"]["locations"]["sha256"],
-            "config_sha256": sha256_file(config_path),
+            **config_hashes,
             "configuration": configuration,
             "git": _git_state(config_path.parents[1]),
             "split_manifest_sha256": sha256_file(staging / "split_manifest.json"),

@@ -617,6 +617,13 @@ def make_observed_report(
                 "redistribution requires a documented legal basis under the publisher terms."
             ),
         }
+        if provenance.get("config_hash_scheme") is not None:
+            safe_sidecar.update(
+                {
+                    "config_hash_scheme": provenance["config_hash_scheme"],
+                    "config_canonical_sha256": provenance["config_canonical_sha256"],
+                }
+            )
         output.with_suffix(".provenance.json").write_text(
             json.dumps(safe_sidecar, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",

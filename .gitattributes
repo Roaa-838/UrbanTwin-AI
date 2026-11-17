@@ -1,0 +1,2 @@
+# Keep the historical observed-study configuration stable across clean checkouts.
+configs/observed_traffic.yaml text eol=lf
