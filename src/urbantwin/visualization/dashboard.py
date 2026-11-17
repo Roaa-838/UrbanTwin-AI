@@ -272,33 +272,37 @@ def _observed_eo_section() -> None:
             alt="Macro F1 by model and feature set against WorldCover 2021 pseudo-labels",
         )
 
-    observed = _load_verified_observed()
-    if observed is not None and not PUBLICATION_SAFE:
-        context_path = Path(observed["output_dir"]) / "historic_eo_context.json"
-        context = pd.DataFrame(json.loads(context_path.read_text(encoding="utf-8")))
-        st.subheader("Selected observed-link context")
-        st.caption(
-            "Buffers around the selected 6th of October Bridge links use real Sentinel-2 L2A "
-            "scenes from 24 October to 3 November 2024. The 3 November scene postdates the "
-            "31 October traffic survey and is retrospective context. WorldCover 2021 remains "
-            "historic; EO is absent from the multi-site prediction benchmark and these descriptors "
-            "are not causal traffic predictors."
-        )
-        st.dataframe(
-            context[
-                [
-                    "buffer_m",
-                    "valid_pixel_coverage",
-                    "mean_ndvi",
-                    "mean_ndbi",
-                    "worldcover_built_up_fraction",
-                    "worldcover_vegetated_fraction",
-                ]
-            ],
-            width="stretch",
-            hide_index=True,
-            alt="Retrospective 2024 Sentinel and historic WorldCover summaries for selected links",
-        )
+    if not PUBLICATION_SAFE:
+        observed = _load_verified_observed()
+        if observed is not None:
+            context_path = Path(observed["output_dir"]) / "historic_eo_context.json"
+            context = pd.DataFrame(json.loads(context_path.read_text(encoding="utf-8")))
+            st.subheader("Selected observed-link context")
+            st.caption(
+                "Buffers around the selected 6th of October Bridge links use real Sentinel-2 L2A "
+                "scenes from 24 October to 3 November 2024. The 3 November scene postdates the "
+                "31 October traffic survey and is retrospective context. WorldCover 2021 remains "
+                "historic; EO is absent from the multi-site prediction benchmark and these "
+                "descriptors are not causal traffic predictors."
+            )
+            st.dataframe(
+                context[
+                    [
+                        "buffer_m",
+                        "valid_pixel_coverage",
+                        "mean_ndvi",
+                        "mean_ndbi",
+                        "worldcover_built_up_fraction",
+                        "worldcover_vegetated_fraction",
+                    ]
+                ],
+                width="stretch",
+                hide_index=True,
+                alt=(
+                    "Retrospective 2024 Sentinel and historic WorldCover summaries for "
+                    "selected links"
+                ),
+            )
 
 
 def _observed_traffic_section() -> None:
@@ -706,44 +710,51 @@ def _abstract_simulation_section() -> None:
     )
 
 
-st.set_page_config(
-    page_title="UrbanTwin-AI research dashboard",
-    page_icon=":material/location_city:",
-    layout="wide",
-)
-st.title("UrbanTwin-AI research evidence", icon=":material/location_city:")
-st.caption(
-    "Measured Greater Cairo traffic, GIS and spatial feature engineering, retrospective Earth "
-    "observation context, and explicitly separate abstract simulation evidence."
-)
-st.info(
-    "This is a research prototype, not a deployed traffic controller or a calibrated Cairo "
-    "digital twin. Every section retains its own measured, remotely sensed, mapped, inferred, "
-    "or simulated source label.",
-    icon=":material/info:",
-)
-
-SECTIONS = [
+SECTIONS = (
     "Observed EO",
     "Measured Cairo traffic",
     "Measured-demand simulation",
     "Abstract simulation",
-]
-section = st.segmented_control(
-    "Research section",
-    SECTIONS,
-    default=SECTIONS[0],
-    required=True,
-    key="research_section",
-    width="stretch",
-    wrap=True,
 )
 
-if section == "Measured Cairo traffic":
-    _observed_traffic_section()
-elif section == "Measured-demand simulation":
-    _measured_simulation_section()
-elif section == "Abstract simulation":
-    _abstract_simulation_section()
-else:
-    _observed_eo_section()
+
+def main() -> None:
+    """Render the source-separated research dashboard."""
+    st.set_page_config(
+        page_title="UrbanTwin-AI research dashboard",
+        page_icon=":material/location_city:",
+        layout="wide",
+    )
+    st.title("UrbanTwin-AI research evidence", icon=":material/location_city:")
+    st.caption(
+        "Measured Greater Cairo traffic, GIS and spatial feature engineering, retrospective "
+        "Earth observation context, and explicitly separate abstract simulation evidence."
+    )
+    st.info(
+        "This is a research prototype, not a deployed traffic controller or a calibrated Cairo "
+        "digital twin. Every section retains its own measured, remotely sensed, mapped, inferred, "
+        "or simulated source label.",
+        icon=":material/info:",
+    )
+    section = st.segmented_control(
+        "Research section",
+        SECTIONS,
+        default=SECTIONS[0],
+        required=True,
+        key="research_section",
+        width="stretch",
+        wrap=True,
+    )
+
+    if section == "Measured Cairo traffic":
+        _observed_traffic_section()
+    elif section == "Measured-demand simulation":
+        _measured_simulation_section()
+    elif section == "Abstract simulation":
+        _abstract_simulation_section()
+    else:
+        _observed_eo_section()
+
+
+if __name__ == "__main__":
+    main()
