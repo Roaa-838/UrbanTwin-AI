@@ -151,7 +151,9 @@ The release contains road-link aggregates rather than individual trajectories, b
 
 The local normalized and benchmark bundles bind every artifact to SHA-256 hashes, source record IDs, the configuration hash, split hashes, code revision and source labels. The authoritative configuration is `configs/observed_traffic.yaml`; normalized files are kept under ignored `data/observed/`, and results under ignored `results/observed_traffic/`. Any redistribution requires a documented legal basis under the applicable publisher terms.
 
-The executed local bundle records its configuration, split, EO stack, current-OSM manifest, source
+The executed local bundle's configuration digest is an immutable legacy raw-byte SHA-256; it is
+not reinterpreted or replaced by the canonical scheme used for future bundles. The bundle records
+its configuration, split, EO stack, current-OSM manifest, source
 archives, code revision and every result artifact by SHA-256. Experiment-tracking metadata is
 accepted only when it matches the same source, configuration, split, artifact and code provenance.
 Historical records remain immutable.

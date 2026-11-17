@@ -87,6 +87,22 @@ Offline tests use deterministic fixtures and mocks. They do not retrieve TfC, ST
 
 The release verifier covers repository structure, packaging, tracked-file hygiene, and static provenance boundaries. Its `not_verified` list must not be reported as passed work.
 
+### Configuration-hash compatibility
+
+Historical bundles without an explicit canonical hash scheme remain bound to the exact raw bytes
+recorded in `config_sha256`. A CRLF/LF difference is therefore a real mismatch for those bundles;
+validation never falls back to parsed equivalence, and historical manifests must not be edited or
+backfilled. Clean checkouts pin research YAML files to LF so their raw bytes are reproducible on
+Windows and Linux.
+
+Future observed-study bundles use `urbantwin.config-canonical-json/v1` under the v3 provenance
+schema. They retain the producer's raw SHA-256 for audit and separately hash the complete parsed
+mapping with a versioned, type-strict canonical JSON encoding. This permits only serialization
+equivalence such as LF versus CRLF or YAML formatting; any changed scientific value, ambiguous
+duplicate key, malformed configuration, unknown scheme, or mismatched embedded snapshot is
+rejected. Other legacy artifact and checkpoint schemas continue to use their original raw-byte
+contracts until they receive an explicit, separately tested schema migration.
+
 ## 4. Deterministic synthetic smoke fixture
 
 The demo is a software check, not research evidence:
@@ -435,7 +451,7 @@ The current adapter intentionally supports exactly two detected main green phase
 | STAC or Overpass unavailable | Retry respectfully; real mode stops and never substitutes synthetic data. |
 | Observed data missing | Acquire TfC records 190 and 193, then run `observed-data-audit` and `observed-data-prepare`. |
 | Existing output directory rejected | Use a new directory; evidence bundles are intentionally not overwritten. |
-| Observed results rejected as stale | Reproduce on the current code/configuration or inspect the provenance mismatch; never edit hashes by hand. |
+| Observed results rejected as stale | Inspect the provenance schema first. Legacy bundles require the exact recorded config bytes; future v3 bundles require the declared canonical hash and embedded snapshot. Never edit or copy hash fields by hand. |
 | Checkpoint rejected | Let `--resume` recompute it; do not copy checkpoints between experiments. |
 | MLflow logging fails | Preserve local validated results, fix tracking separately, and do not claim the run was logged. |
 
