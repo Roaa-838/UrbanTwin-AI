@@ -207,14 +207,19 @@ def _dataset_overview_rows(verified: dict[str, Any]) -> list[list[Any]]:
     )
 
     try:
-        observed_vehicles = float(classes["observed_vehicles"].sum())
-    except (TypeError, ValueError) as exc:
+        raw_vehicle_totals = list(classes["observed_vehicles"])
+        if any(isinstance(value, bool) for value in raw_vehicle_totals):
+            raise ValueError("boolean vehicle total")
+        vehicle_totals = [float(value) for value in raw_vehicle_totals]
+    except (KeyError, OverflowError, TypeError, ValueError) as exc:
         raise ValueError("Observed vehicle-class summary has an invalid total") from exc
-    if (
-        not math.isfinite(observed_vehicles)
-        or observed_vehicles < 0
-        or not observed_vehicles.is_integer()
+    if not vehicle_totals or any(
+        not math.isfinite(value) or value < 0 or not value.is_integer()
+        for value in vehicle_totals
     ):
+        raise ValueError("Observed vehicle-class summary has an invalid total")
+    observed_vehicles = sum(vehicle_totals)
+    if not math.isfinite(observed_vehicles):
         raise ValueError("Observed vehicle-class summary has an invalid total")
 
     normalization = source.get("normalization")
