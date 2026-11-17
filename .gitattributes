@@ -1,3 +1,2 @@
-# Keep research configuration bytes stable in clean Linux and Windows checkouts.
-configs/*.yaml text eol=lf
-configs/*.yml text eol=lf
+# Keep the historical observed-study configuration stable across clean checkouts.
+configs/observed_traffic.yaml text eol=lf

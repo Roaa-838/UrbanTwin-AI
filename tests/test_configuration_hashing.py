@@ -182,8 +182,13 @@ def test_strict_config_loading_rejects_duplicate_and_corrupted_yaml(tmp_path: Pa
         )
 
 
-def test_clean_checkouts_pin_research_yaml_to_lf() -> None:
+def test_clean_checkouts_pin_only_observed_config_to_lf() -> None:
     attributes = (Path(__file__).parents[1] / ".gitattributes").read_text(encoding="utf-8")
+    rules = {
+        line.strip()
+        for line in attributes.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
 
-    assert "configs/*.yaml text eol=lf" in attributes.splitlines()
-    assert "configs/*.yml text eol=lf" in attributes.splitlines()
+    assert rules == {"configs/observed_traffic.yaml text eol=lf"}
+    assert all("experiments.yaml" not in rule for rule in rules)

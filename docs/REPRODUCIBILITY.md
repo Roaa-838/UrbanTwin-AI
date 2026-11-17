@@ -92,8 +92,10 @@ The release verifier covers repository structure, packaging, tracked-file hygien
 Historical bundles without an explicit canonical hash scheme remain bound to the exact raw bytes
 recorded in `config_sha256`. A CRLF/LF difference is therefore a real mismatch for those bundles;
 validation never falls back to parsed equivalence, and historical manifests must not be edited or
-backfilled. Clean checkouts pin research YAML files to LF so their raw bytes are reproducible on
-Windows and Linux.
+backfilled. Clean checkouts pin only `configs/observed_traffic.yaml` to LF, matching the historical
+observed-study bytes. Other configuration files intentionally retain the platform's checkout
+policy because existing GeoAI, traffic, and checkpoint identities remain raw-byte-bound; do not
+renormalize those files when validating or resuming historical work.
 
 Future observed-study bundles use `urbantwin.config-canonical-json/v1` under the v3 provenance
 schema. They retain the producer's raw SHA-256 for audit and separately hash the complete parsed
