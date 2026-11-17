@@ -126,7 +126,6 @@ Environment setup, data acquisition, experiment commands, recovery procedures, a
 - [Data sources, licensing, and attribution](docs/DATA_SOURCES.md)
 - [Reproducibility guide](docs/REPRODUCIBILITY.md)
 - [Measured traffic case study](docs/observed_traffic_case_study.md)
-- [Evidence-bounded research case study](docs/research_case_study.md)
 - [Real-data feasibility audit](docs/real_data_feasibility.md)
 - [Results integrity and artifact policy](results/README.md)
 - Notebooks: [geospatial analysis](notebooks/01_geospatial_analysis.ipynb), [experiment results](notebooks/02_experiment_results.ipynb), [measured observations](notebooks/03_observed_traffic_measurements.ipynb), and [model benchmark](notebooks/04_observed_traffic_benchmark.ipynb)

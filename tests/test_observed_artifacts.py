@@ -7,6 +7,7 @@ from typing import Any
 
 import pandas as pd
 import pytest
+from PIL import Image as PILImage
 
 from urbantwin.common import sha256_file
 from urbantwin.observed.artifacts import (
@@ -71,6 +72,8 @@ def _observed_bundle(root: Path) -> Path:
     source_manifest = {
         "data_kind": "real_observed_traffic",
         "license": {"status": "unspecified_by_publisher", "redistribution_permitted": False},
+        "normalization": {"timezone_status": "not_provided_by_synthetic_fixture"},
+        "row_counts": {"counts_wide": 7, "survey_segments": 3},
         "sources": {
             "counts": {"sha256": "a" * 64},
             "locations": {"sha256": "b" * 64},
@@ -257,7 +260,15 @@ def _observed_bundle(root: Path) -> Path:
         json.dumps({"type": "FeatureCollection", "features": []}), encoding="utf-8"
     )
     (output / "historic_eo_context.json").write_text("[]", encoding="utf-8")
-    (output / "figures" / "synthetic_chart.png").write_bytes(b"SYNTHETIC TEST IMAGE")
+    figure_files = [
+        "figures/survey_segments_measured_flow.png",
+        "figures/selected_link_measured_flow.png",
+        "figures/observed_model_comparison.png",
+        "figures/observed_vs_estimated.png",
+        "figures/online_persistence_diagnostic.png",
+    ]
+    for relative in figure_files:
+        PILImage.new("RGB", (240, 160), "white").save(output / relative)
     cv_folds = []
     for fold in range(1, 6):
         validation_index = fold - 1
@@ -339,7 +350,7 @@ def _observed_bundle(root: Path) -> Path:
         "artifact_hashes": {
             path.relative_to(output).as_posix(): sha256_file(path) for path in artifact_files
         },
-        "figure_files": ["figures/synthetic_chart.png"],
+        "figure_files": figure_files,
     }
     (output / "provenance.json").write_text(json.dumps(provenance), encoding="utf-8")
     return output

@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+import math
+from datetime import date, datetime
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -30,7 +31,10 @@ from reportlab.platypus import (
 )
 
 from urbantwin.common import sha256_file
-from urbantwin.observed.artifacts import validate_observed_artifacts
+from urbantwin.observed.artifacts import (
+    ObservedArtifactIntegrityError,
+    validate_observed_artifacts,
+)
 from urbantwin.observed.mlflow_tracking import observed_run_association
 from urbantwin.visualization.report_writer import (
     ArtifactIntegrityError,
@@ -132,6 +136,183 @@ def _survey_map_image(path: Path, max_width: float, max_height: float) -> Image:
     image.drawHeight = image.imageHeight * scale
     image.hAlign = "CENTER"
     return image
+
+
+def _manifest_count(value: Any, label: str) -> int:
+    """Return a non-negative integer count from a validated manifest."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"Observed manifest has an invalid {label}: {value!r}")
+    return value
+
+
+def _date_span(values: list[Any]) -> str:
+    """Format an ISO-date collection without platform-specific strftime flags."""
+    try:
+        dates = sorted({date.fromisoformat(str(value)) for value in values})
+    except ValueError as exc:
+        raise ValueError("Observed split manifest contains an invalid ISO date") from exc
+    if not dates:
+        raise ValueError("Observed split manifest contains no survey dates")
+    first, last = dates[0], dates[-1]
+    if first == last:
+        span = f"{first.day} {first.strftime('%b %Y')}"
+    elif first.year == last.year and first.month == last.month:
+        span = f"{first.day}–{last.day} {last.strftime('%b %Y')}"
+    elif first.year == last.year:
+        span = (
+            f"{first.day} {first.strftime('%b')}–"
+            f"{last.day} {last.strftime('%b %Y')}"
+        )
+    else:
+        span = (
+            f"{first.day} {first.strftime('%b %Y')}–"
+            f"{last.day} {last.strftime('%b %Y')}"
+        )
+    return f"{len(dates):,} ({span})"
+
+
+def _dataset_overview_rows(verified: dict[str, Any]) -> list[list[Any]]:
+    """Build the overview table exclusively from validated bundle metadata."""
+    source = verified["source_manifest"]
+    split = verified["split_manifest"]
+    classes = verified["vehicle_classes"]
+    row_counts = source.get("row_counts")
+    if not isinstance(row_counts, dict):
+        raise TypeError("Observed source manifest has no row_counts object")
+
+    directional_intervals = _manifest_count(
+        row_counts.get("counts_wide"), "counts_wide row count"
+    )
+    train_rows = _manifest_count(split.get("train_rows"), "training row count")
+    test_rows = _manifest_count(split.get("test_rows"), "holdout row count")
+    excluded_rows = _manifest_count(
+        split.get("excluded_ambiguous_rows"), "excluded ambiguous row count"
+    )
+    if directional_intervals != train_rows + test_rows + excluded_rows:
+        raise ValueError(
+            "Observed source and split manifests disagree on directional interval counts"
+        )
+
+    survey_lines = _manifest_count(
+        row_counts.get("survey_segments"), "survey segment count"
+    )
+    train_sites = _manifest_count(
+        split.get("train_inferred_sites"), "training inferred-site count"
+    )
+    test_sites = _manifest_count(
+        split.get("test_inferred_sites"), "holdout inferred-site count"
+    )
+    survey_dates = _date_span(
+        [*(split.get("train_dates") or []), *(split.get("test_dates") or [])]
+    )
+
+    try:
+        observed_vehicles = float(classes["observed_vehicles"].sum())
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Observed vehicle-class summary has an invalid total") from exc
+    if (
+        not math.isfinite(observed_vehicles)
+        or observed_vehicles < 0
+        or not observed_vehicles.is_integer()
+    ):
+        raise ValueError("Observed vehicle-class summary has an invalid total")
+
+    normalization = source.get("normalization")
+    if not isinstance(normalization, dict):
+        raise TypeError("Observed source manifest has no normalization metadata")
+    timezone_status = normalization.get("timezone_status")
+    if not isinstance(timezone_status, str) or not timezone_status.strip():
+        raise ValueError("Observed source manifest has no timezone status")
+    timezone_label = timezone_status.replace("_", " ").capitalize()
+
+    license_record = source.get("license")
+    if not isinstance(license_record, dict):
+        raise TypeError("Observed source manifest has no license metadata")
+    license_status = license_record.get("status")
+    if not isinstance(license_status, str) or not license_status.strip():
+        raise ValueError("Observed source manifest has no license status")
+    license_label = license_status.replace("_", " ").capitalize()
+
+    return [
+        ["Item", "Verified value", "Interpretation"],
+        [
+            "Directional intervals",
+            f"{directional_intervals:,}",
+            "Normalized 20-minute records declared by the source manifest",
+        ],
+        [
+            "Observed vehicles",
+            f"{int(observed_vehicles):,}",
+            f"Sum across {len(classes):,} source classes",
+        ],
+        [
+            "Survey dates",
+            survey_dates,
+            "Distinct dates declared by the frozen train/holdout split",
+        ],
+        [
+            "Released survey lines",
+            f"{survey_lines:,}",
+            "Normalized line features declared by the source manifest",
+        ],
+        [
+            "Inferred analytical sites",
+            f"{train_sites + test_sites:,}",
+            "Disjoint train/holdout spatial clusters; not official location IDs",
+        ],
+        [
+            "Ambiguous OSM rows excluded",
+            f"{excluded_rows:,}",
+            "Excluded from the primary spatial benchmark",
+        ],
+        [
+            "Timezone",
+            timezone_label,
+            "Clock values retained without UTC conversion",
+        ],
+        [
+            "Portal license",
+            license_label,
+            "Public redistribution scope is not inferred from public access",
+        ],
+    ]
+
+
+def _split_warning(split: dict[str, Any]) -> str:
+    """Return the optional manifest warning or a conservative protocol warning."""
+    warning = split.get("warning")
+    if isinstance(warning, str) and warning.strip():
+        return warning.strip()
+    return (
+        "The split manifest provides no optional narrative warning. The declared holdout "
+        "combines future dates and unseen inferred sites and must not be interpreted as "
+        "separate temporal or geographic validation."
+    )
+
+
+def _require_report_figures(
+    verified: dict[str, Any],
+    *,
+    has_eo_context: bool,
+    has_road_context: bool,
+) -> None:
+    """Reject a full report when a displayed figure is not provenance-bound."""
+    required = {
+        "figures/survey_segments_measured_flow.png",
+        "figures/selected_link_measured_flow.png",
+        "figures/observed_model_comparison.png",
+        "figures/observed_vs_estimated.png",
+        "figures/online_persistence_diagnostic.png",
+    }
+    if has_eo_context:
+        required.add("figures/selected_link_historic_eo_context.png")
+    if has_road_context:
+        required.add("figures/selected_link_current_osm_context.png")
+    missing = sorted(required - set(verified["hashes"]))
+    if missing:
+        raise ObservedArtifactIntegrityError(
+            "Observed bundle lacks provenance-bound report figures: " + ", ".join(missing)
+        )
 
 
 def _page(canvas, document) -> None:
@@ -436,6 +617,11 @@ def make_observed_report(
             encoding="utf-8",
         )
         return output
+    _require_report_figures(
+        verified,
+        has_eo_context=bool(eo_context),
+        has_road_context=isinstance(road_context, dict),
+    )
     story.append(
         _table(
             [
@@ -496,28 +682,9 @@ def make_observed_report(
     )
 
     story.extend([PageBreak(), Paragraph("Data, provenance and study design", styles["h1"])])
-    total_vehicles = int(classes["observed_vehicles"].sum())
     story.append(
         _table(
-            [
-                ["Item", "Verified value", "Interpretation"],
-                ["Directional intervals", "6,618", "Published 20-minute records"],
-                ["Observed vehicles", f"{total_vehicles:,}", "Sum across 12 source classes"],
-                [
-                    "Survey dates",
-                    "30 (21 Jul-5 Nov 2024)",
-                    "Every directional segment appears on one date",
-                ],
-                ["Released survey lines", "145", "142 have count rows"],
-                ["Inferred analytical sites", "60", "250 m connected components; not official IDs"],
-                ["Ambiguous OSM joins", "5 segments / 156 rows", "Excluded from primary spatial benchmark"],
-                ["Timezone", "Not provided", "Clock values retained without UTC conversion"],
-                [
-                    "Portal license",
-                    "No explicit record-level open license stated",
-                    "Public redistribution scope not assumed",
-                ],
-            ],
+            _dataset_overview_rows(verified),
             [54 * mm, 66 * mm, 120 * mm],
             styles["small"],
         )
@@ -544,7 +711,7 @@ def make_observed_report(
                 "95% uncertainty intervals.",
                 styles["body"],
             ),
-            Paragraph(split["warning"], styles["callout"]),
+            Paragraph(_split_warning(split), styles["callout"]),
         ]
     )
     map_path = observed_dir / "figures" / "survey_segments_measured_flow.png"

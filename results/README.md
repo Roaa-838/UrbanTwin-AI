@@ -9,12 +9,10 @@ copy contains three scientifically distinct result families:
 3. `results/traffic/`: the completed 198-request abstract SUMO comparison
    (`data_kind: simulation_abstract`). It is not measured Cairo demand.
 
-The observed study is reproduced with:
-
-```powershell
-urbantwin observed-study --resume --mlflow
-urbantwin observed-report
-```
+The completed abstract benchmark comprised 198 logical simulator requests: 162 physical executions
+and 36 validated cache hits under SUMO 1.26.0. These execution counts describe the archived local
+run, not measured traffic or a calibrated city model. Exact reproduction commands for every study
+are maintained in the [reproducibility guide](../docs/REPRODUCIBILITY.md).
 
 Its strict validator binds the official source hashes, normalized manifest, configuration, split,
 predictions, aggregate metrics, figures and source labels. Measurement-free volume estimation and

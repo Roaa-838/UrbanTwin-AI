@@ -1,50 +1,199 @@
 from __future__ import annotations
 
 import inspect
+import json
 from pathlib import Path
 
+import pandas as pd
+import pytest
 from PIL import Image as PILImage
 from reportlab.pdfbase import pdfmetrics
 
+from tests.test_observed_artifacts import _observed_bundle
 from urbantwin.cli import _parser
+from urbantwin.common import sha256_file
+from urbantwin.observed.artifacts import ObservedArtifactIntegrityError
 from urbantwin.observed.report import (
     BODY_FONT,
     BOLD_FONT,
+    _dataset_overview_rows,
     _register_pdf_fonts,
+    _split_warning,
     _survey_map_image,
     make_observed_report,
 )
 
-REPORT = (
-    Path(__file__).resolve().parents[1]
-    / "src"
-    / "urbantwin"
-    / "observed"
-    / "report.py"
-)
 
-
-def test_report_defaults_to_full_private_mode_and_supports_safe_publication() -> None:
+def test_report_defaults_to_full_private_mode() -> None:
     parameter = inspect.signature(make_observed_report).parameters["publication_safe"]
 
     assert parameter.default is False
-    source = REPORT.read_text(encoding="utf-8")
-    assert "Measured Greater Cairo Traffic" in source
-    assert "Selected using training-only grouped CV" in source
-    assert "Lowest observed final-holdout point estimate" in source
-    assert "EO variables are absent from the multi-site prediction benchmark" in source
-    assert "Contains modified Copernicus Sentinel data 2024" in source
-    assert "© ESA WorldCover project 2021" in source
-    assert "publication-safe methods summary" in source.lower()
-    assert "No model ranking or " in source
-    assert "holdout outcome is reproduced" in source
-    assert "https://www.openstreetmap.org/copyright" in source
 
 
 def test_observed_report_cli_exposes_explicit_publication_safe_mode() -> None:
     arguments = _parser().parse_args(["observed-report", "--publication-safe"])
 
     assert arguments.publication_safe is True
+
+
+def test_dataset_overview_is_derived_from_validated_metadata() -> None:
+    verified = {
+        "source_manifest": {
+            "row_counts": {"counts_wide": 8, "survey_segments": 9},
+            "normalization": {"timezone_status": "unspecified_by_publisher"},
+            "license": {"status": "unspecified_by_publisher"},
+        },
+        "split_manifest": {
+            "train_rows": 4,
+            "test_rows": 3,
+            "excluded_ambiguous_rows": 1,
+            "train_inferred_sites": 3,
+            "test_inferred_sites": 2,
+            "train_dates": ["2024-01-01", "2024-01-02"],
+            "test_dates": ["2024-02-01"],
+        },
+        "vehicle_classes": pd.DataFrame(
+            [
+                {"vehicle_class": "a", "observed_vehicles": 10},
+                {"vehicle_class": "b", "observed_vehicles": 20},
+            ]
+        ),
+    }
+
+    rows = {row[0]: row[1:] for row in _dataset_overview_rows(verified)[1:]}
+
+    assert rows["Directional intervals"][0] == "8"
+    assert rows["Observed vehicles"][0] == "30"
+    assert rows["Survey dates"][0] == "3 (1 Jan–1 Feb 2024)"
+    assert rows["Released survey lines"][0] == "9"
+    assert rows["Inferred analytical sites"][0] == "5"
+    assert rows["Ambiguous OSM rows excluded"][0] == "1"
+    assert rows["Timezone"][0] == "Unspecified by publisher"
+
+
+def test_dataset_overview_rejects_manifest_count_disagreement() -> None:
+    verified = {
+        "source_manifest": {
+            "row_counts": {"counts_wide": 9, "survey_segments": 1},
+            "normalization": {"timezone_status": "unspecified"},
+            "license": {"status": "unspecified"},
+        },
+        "split_manifest": {
+            "train_rows": 4,
+            "test_rows": 3,
+            "excluded_ambiguous_rows": 1,
+            "train_inferred_sites": 1,
+            "test_inferred_sites": 1,
+            "train_dates": ["2024-01-01"],
+            "test_dates": ["2024-02-01"],
+        },
+        "vehicle_classes": pd.DataFrame([{"observed_vehicles": 1}]),
+    }
+
+    with pytest.raises(ValueError, match="disagree on directional interval counts"):
+        _dataset_overview_rows(verified)
+
+
+def test_split_warning_preserves_manifest_text_and_has_safe_fallback() -> None:
+    assert _split_warning({"warning": "  Audited split warning.  "}) == ("Audited split warning.")
+    fallback = _split_warning({})
+    assert "future dates and unseen inferred sites" in fallback
+    assert "separate temporal or geographic validation" in fallback
+
+
+def test_publication_safe_report_generates_pdf_and_bound_sidecar(tmp_path: Path) -> None:
+    observed = _observed_bundle(tmp_path)
+    output = tmp_path / "reports" / "observed_methods.pdf"
+
+    result = make_observed_report(
+        tmp_path,
+        output,
+        observed_output=observed,
+        publication_safe=True,
+    )
+
+    assert result == output.resolve()
+    assert output.read_bytes().startswith(b"%PDF-")
+    assert output.stat().st_size > 1_000
+    sidecar = json.loads(output.with_suffix(".provenance.json").read_text(encoding="utf-8"))
+    assert sidecar["schema_version"] == "urbantwin.observed-report/v1"
+    assert sidecar["publication_safe"] is True
+    assert sidecar["data_kind"] == "publication_safe_methods_summary"
+    assert sidecar["config_sha256"] == sha256_file(
+        tmp_path / "configs" / "observed_traffic.yaml"
+    )
+    assert sidecar["code_revision"] == "c" * 40
+    assert sidecar["report_sha256"] == sha256_file(output)
+
+
+def test_full_report_generates_from_provenance_bound_figures(tmp_path: Path) -> None:
+    observed = _observed_bundle(tmp_path)
+    output = tmp_path / "reports" / "observed_private.pdf"
+
+    result = make_observed_report(tmp_path, output, observed_output=observed)
+
+    assert result == output.resolve()
+    assert output.read_bytes().startswith(b"%PDF-")
+    assert output.stat().st_size > 5_000
+    sidecar = json.loads(output.with_suffix(".provenance.json").read_text(encoding="utf-8"))
+    assert sidecar["schema_version"] == "urbantwin.observed-report/v1"
+    assert sidecar["publication_safe"] is False
+    assert sidecar["data_kind"] == "research_report_mixed_sources_explicitly_separated"
+    assert sidecar["observed_provenance_sha256"] == sha256_file(
+        observed / "provenance.json"
+    )
+    assert "configs/observed_traffic.yaml" in sidecar["input_hashes"]
+    assert "results/observed_traffic/observed_metrics.csv" in sidecar["input_hashes"]
+    assert sidecar["report_sha256"] == sha256_file(output)
+    assert sidecar["input_hashes"]
+
+
+def test_full_report_rejects_unbound_required_figure(tmp_path: Path) -> None:
+    observed = _observed_bundle(tmp_path)
+    provenance_path = observed / "provenance.json"
+    provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+    provenance["artifact_hashes"].pop("figures/observed_model_comparison.png")
+    provenance_path.write_text(json.dumps(provenance), encoding="utf-8")
+    output = tmp_path / "reports" / "unbound.pdf"
+
+    with pytest.raises(
+        ObservedArtifactIntegrityError,
+        match="lacks provenance-bound report figures",
+    ):
+        make_observed_report(tmp_path, output, observed_output=observed)
+
+    assert not output.exists()
+    assert not output.with_suffix(".provenance.json").exists()
+
+
+def test_report_rejects_missing_or_corrupted_observed_inputs(tmp_path: Path) -> None:
+    missing_output = tmp_path / "reports" / "missing.pdf"
+    with pytest.raises(FileNotFoundError, match="No validated observed-traffic study"):
+        make_observed_report(
+            tmp_path,
+            missing_output,
+            observed_output=tmp_path / "missing-observed-results",
+            publication_safe=True,
+        )
+    assert not missing_output.exists()
+
+    corrupted_root = tmp_path / "corrupted"
+    observed = _observed_bundle(corrupted_root)
+    metrics = observed / "observed_metrics.csv"
+    metrics.write_text(
+        metrics.read_text(encoding="utf-8") + "corrupt\n",
+        encoding="utf-8",
+    )
+    corrupted_output = tmp_path / "reports" / "corrupted.pdf"
+    with pytest.raises(ObservedArtifactIntegrityError, match="hash-mismatched"):
+        make_observed_report(
+            corrupted_root,
+            corrupted_output,
+            observed_output=observed,
+            publication_safe=True,
+        )
+    assert not corrupted_output.exists()
+    assert not corrupted_output.with_suffix(".provenance.json").exists()
 
 
 def test_report_embeds_portable_fonts_and_enhances_map_without_overwriting(
