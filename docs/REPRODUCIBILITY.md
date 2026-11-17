@@ -439,4 +439,4 @@ The current adapter intentionally supports exactly two detected main green phase
 | Checkpoint rejected | Let `--resume` recompute it; do not copy checkpoints between experiments. |
 | MLflow logging fails | Preserve local validated results, fix tracking separately, and do not claim the run was logged. |
 
-For source licensing and acknowledgements, see [DATA_SOURCES.md](DATA_SOURCES.md). For the scientific design and limitations, see [observed_traffic_case_study.md](observed_traffic_case_study.md), [research_case_study.md](research_case_study.md), and [real_data_feasibility.md](real_data_feasibility.md).
+For source licensing and acknowledgements, see [DATA_SOURCES.md](DATA_SOURCES.md). For the scientific design, results, and limitations, see [observed_traffic_case_study.md](observed_traffic_case_study.md), [real_data_feasibility.md](real_data_feasibility.md), and the [results integrity policy](../results/README.md).

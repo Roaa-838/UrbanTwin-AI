@@ -42,9 +42,10 @@ EXPECTED = [
     "docs/observed_traffic_case_study.md",
     "docs/DATA_SOURCES.md",
     "docs/REPRODUCIBILITY.md",
+    "notebooks/01_geospatial_analysis.ipynb",
+    "notebooks/02_experiment_results.ipynb",
     "notebooks/03_observed_traffic_measurements.ipynb",
     "notebooks/04_observed_traffic_benchmark.ipynb",
-    "reports/research_report.pdf",
 ]
 TEXT_SUFFIXES = {
     ".cfg",
@@ -150,18 +151,13 @@ if deprecated_name in dashboard:
     fail("Dashboard still uses Streamlit's deprecated container-width argument")
 
 # Static documents must distinguish executed evidence from deliberately blocked
-# phases. Generated row-level/result bundles remain ignored.
-case_study = (ROOT / "docs/research_case_study.md").read_text(encoding="utf-8").lower()
-report = (ROOT / "reports/research_report.md").read_text(encoding="utf-8").lower()
+# phases. Check stable provenance labels and scientific boundaries instead of
+# presentation wording. Generated row-level/result bundles remain ignored.
 readme = (ROOT / "README.md").read_text(encoding="utf-8").lower()
-required_case_phrases = (
-    "measured-demand signal-control simulation was **not run**",
-    "198 logical sumo requests",
-    "different task",
-    "not a deployed",
-)
-if any(phrase not in case_study for phrase in required_case_phrases):
-    fail("Research case study does not preserve executed/blocked evidence boundaries")
+observed_case = (ROOT / "docs/observed_traffic_case_study.md").read_text(
+    encoding="utf-8"
+).lower()
+results_policy = (ROOT / "results/README.md").read_text(encoding="utf-8").lower()
 required_readme_phrases = (
     "measured traffic observations",
     "controlled traffic simulation",
@@ -170,8 +166,16 @@ required_readme_phrases = (
 )
 if any(phrase not in readme for phrase in required_readme_phrases):
     fail("README does not preserve observed/simulated evidence boundaries")
-if "not yet generated" not in report:
-    fail("Tracked methodology report must remain explicit about its static status")
+if not {"real_observed_traffic_analysis", "simulation_abstract"}.issubset(
+    set(re.findall(r"data_kind:\s*([a-z0-9_]+)", results_policy))
+):
+    fail("Results policy does not preserve observed and abstract-simulation provenance labels")
+if not (
+    "joint future-date/unseen-inferred-site" in observed_case
+    and "measured-demand signal-control" in observed_case
+    and re.search(r"(?:not|never)\s+(?:been\s+)?run", observed_case)
+):
+    fail("Observed case study does not preserve its evaluation and simulation limits")
 
 print(
     json.dumps(

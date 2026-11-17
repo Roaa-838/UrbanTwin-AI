@@ -156,30 +156,11 @@ archives, code revision and every result artifact by SHA-256. Experiment-trackin
 accepted only when it matches the same source, configuration, split, artifact and code provenance.
 Historical records remain immutable.
 
-From Windows PowerShell 5.1 with Python 3.12 and legitimate local downloads:
-
-```powershell
-# Run from the UrbanTwin-AI repository root.
-.\.venv\Scripts\Activate.ps1
-
-urbantwin observed-data-audit `
-  --counts "C:\path\to\2024_traffic_counts.zip" `
-  --locations "C:\path\to\2024_traffic_survey_locations.zip"
-
-$retrievedAt = (Get-Date).ToUniversalTime().ToString("o")
-urbantwin observed-data-prepare `
-  --counts "C:\path\to\2024_traffic_counts.zip" `
-  --locations "C:\path\to\2024_traffic_survey_locations.zip" `
-  --source-retrieved-at-utc $retrievedAt
-
-urbantwin observed-eo-fetch
-urbantwin observed-roads `
-  --output-dir "data\observed\osm\current_tahrir_reproduction"
-urbantwin observed-study --resume --mlflow
-urbantwin observed-report
-```
-
-Use new output-directory names for repeated runs; the preparation and benchmark stages refuse to overwrite an inspected bundle. The manual download pages and verified schemas are documented in [real_data_feasibility.md](real_data_feasibility.md).
+The [reproducibility guide](REPRODUCIBILITY.md) contains the maintained Python 3.12 installation,
+data-acquisition, validation, execution, and failure-recovery commands. The preparation and
+benchmark stages refuse to overwrite an inspected bundle; repeated runs must use a new output
+directory. Verified source schemas and manual acquisition pages are documented in the
+[feasibility audit](real_data_feasibility.md).
 
 ## Attribution
 
