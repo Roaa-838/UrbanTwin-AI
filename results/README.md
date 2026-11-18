@@ -1,13 +1,16 @@
 # Results and evaluation integrity
 
 Generated experiment outputs are ignored by Git by default. The current validated local working
-copy contains three scientifically distinct result families:
+copy contains four scientifically distinct result families:
 
 1. `results/geoai/`: real Sentinel-2/WorldCover 2021 agreement benchmarks (`data_kind: real`).
 2. `results/observed_traffic/`: measured TfC 2024 directional-link characterization and the frozen
    joint future-date/unseen-inferred-site benchmark (`data_kind: real_observed_traffic_analysis`).
 3. `results/traffic/`: the completed 198-request abstract SUMO comparison
    (`data_kind: simulation_abstract`). It is not measured Cairo demand.
+4. `results/geoai_spatial_validation_v1/`: the separate buffered, three-class GeoAI robustness
+   study (`data_kind: real_eo_with_historic_worldcover_pseudo_labels`). It does not replace the
+   six-class frozen GeoAI benchmark and is not independent field accuracy.
 
 The completed abstract benchmark comprised 198 logical simulator requests: 162 physical executions
 and 36 validated cache hits under SUMO 1.26.0. These execution counts describe the archived local

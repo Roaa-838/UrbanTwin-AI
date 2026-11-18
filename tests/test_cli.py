@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pandas as pd
+import pytest
 import yaml
 
 from urbantwin import cli
@@ -94,6 +96,36 @@ def test_observed_parsers_support_current_roads_and_tracking(tmp_path):
     assert study.mlflow is True
 
 
+def test_geoai_spatial_validation_parser_uses_separate_paths(tmp_path):
+    args = cli._parser().parse_args(
+        [
+            "geoai-spatial-validate",
+            "--data-dir",
+            str(tmp_path / "eo"),
+            "--output-dir",
+            str(tmp_path / "spatial"),
+            "--config",
+            str(tmp_path / "protocol.yaml"),
+        ]
+    )
+
+    assert args.data_dir == tmp_path / "eo"
+    assert args.output_dir == tmp_path / "spatial"
+    assert args.config == tmp_path / "protocol.yaml"
+
+    figures = cli._parser().parse_args(
+        [
+            "geoai-spatial-figures",
+            "--bundle-dir",
+            str(tmp_path / "spatial"),
+            "--output-dir",
+            str(tmp_path / "figures"),
+        ]
+    )
+    assert figures.bundle_dir == tmp_path / "spatial"
+    assert figures.output_dir == tmp_path / "figures"
+
+
 def test_cli_reports_interruption_and_returns_130(monkeypatch, capsys):
     def interrupted(_args):
         raise KeyboardInterrupt
@@ -102,3 +134,95 @@ def test_cli_reports_interruption_and_returns_130(monkeypatch, capsys):
 
     assert cli.main(["traffic-run"]) == 130
     assert "--resume" in capsys.readouterr().err
+
+
+def test_geoai_spatial_validation_cli_runs_requested_protocol(tmp_path, monkeypatch, capsys):
+    requested = {}
+
+    def run_spatial_validation(data_dir, output_dir, config):
+        requested.update(data_dir=data_dir, output_dir=output_dir, config=config)
+        return pd.DataFrame([{"condition": "buffered_500m", "macro_f1": 0.4}])
+
+    monkeypatch.setattr(
+        "urbantwin.geoai.spatial_validation.run_spatial_validation",
+        run_spatial_validation,
+    )
+    data_dir = tmp_path / "eo"
+    output_dir = tmp_path / "bundle"
+    config = tmp_path / "protocol.yaml"
+
+    assert (
+        cli.main(
+            [
+                "geoai-spatial-validate",
+                "--data-dir",
+                str(data_dir),
+                "--output-dir",
+                str(output_dir),
+                "--config",
+                str(config),
+            ]
+        )
+        == 0
+    )
+
+    assert requested == {"data_dir": data_dir, "output_dir": output_dir, "config": config}
+    output = capsys.readouterr().out
+    assert "buffered_500m" in output
+    assert f"Validated robustness bundle: {output_dir}" in output
+
+
+def test_geoai_spatial_figures_cli_dispatches_and_reports_validation_errors(
+    tmp_path, monkeypatch, capsys
+):
+    requested = {}
+
+    def render_figures(bundle_dir, output_dir, config, data_dir):
+        requested.update(
+            bundle_dir=bundle_dir,
+            output_dir=output_dir,
+            config=config,
+            data_dir=data_dir,
+        )
+        return [output_dir / "confusion.png", output_dir / "separation.png"]
+
+    monkeypatch.setattr(
+        "urbantwin.geoai.spatial_validation.render_spatial_validation_figures",
+        render_figures,
+    )
+    bundle_dir = tmp_path / "bundle"
+    output_dir = tmp_path / "figures"
+    config = tmp_path / "protocol.yaml"
+    data_dir = tmp_path / "eo"
+    argv = [
+        "geoai-spatial-figures",
+        "--bundle-dir",
+        str(bundle_dir),
+        "--output-dir",
+        str(output_dir),
+        "--config",
+        str(config),
+        "--data-dir",
+        str(data_dir),
+    ]
+
+    assert cli.main(argv) == 0
+    assert requested == {
+        "bundle_dir": bundle_dir,
+        "output_dir": output_dir,
+        "config": config,
+        "data_dir": data_dir,
+    }
+    assert "Validated figures:" in capsys.readouterr().out
+
+    def reject_bundle(*_args):
+        raise ValueError("bundle provenance is inconsistent")
+
+    monkeypatch.setattr(
+        "urbantwin.geoai.spatial_validation.render_spatial_validation_figures",
+        reject_bundle,
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main(argv)
+    assert exc_info.value.code == 2
+    assert "bundle provenance is inconsistent" in capsys.readouterr().err

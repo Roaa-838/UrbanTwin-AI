@@ -138,6 +138,35 @@ Important processing rules:
 
 The scores quantify agreement with WorldCover pseudo-labels, not independent land-cover accuracy.
 
+### Separate buffered spatial-robustness study
+
+The frozen repeated grouped benchmark above uses disjoint 200 m blocks, but adjacent train and
+test blocks may touch. The secondary v1 protocol uses nine contiguous, original-group-aligned
+test tiles and compares an unbuffered tiled control with a strict 500 m pixel-centre exclusion
+buffer. Its three fixed core classes are selected from buffered training support only. It writes
+to a distinct ignored directory and refuses to replace either its own completed bundle or the
+original `results/geoai/` benchmark.
+
+```powershell
+.\.venv\Scripts\urbantwin.exe geoai-spatial-validate
+```
+
+Inputs must be the validated real EO bundle from `eo-fetch`. The default output is
+`results/geoai_spatial_validation_v1/`; use a new empty output path for any later protocol rather
+than editing the v1 configuration or historical output. The protocol, minority-class feasibility,
+and interpretation limits are documented in
+[geoai_spatial_validation.md](geoai_spatial_validation.md).
+
+After the local bundle validates, publication figures can be regenerated without refitting:
+
+```powershell
+.\.venv\Scripts\urbantwin.exe geoai-spatial-figures `
+  --output-dir "docs\assets\geoai_spatial_validation_reproduction"
+```
+
+Both commands refuse to overwrite an existing destination. Choose a new output path for a
+reproduction; do not delete or replace the retained validated bundle merely to redraw figures.
+
 ## 6. Current OpenStreetMap road retrieval
 
 The general road command downloads the current driving graph for the configured AOI and reports projected network statistics:
