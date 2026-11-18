@@ -1206,6 +1206,27 @@ def _require_columns(frame: pd.DataFrame, required: set[str], name: str) -> None
         raise ArtifactIntegrityError(f"{name} is missing columns: {', '.join(missing)}")
 
 
+def _require_reconstructed_table(
+    recorded: pd.DataFrame,
+    rebuilt: pd.DataFrame,
+    columns: Sequence[str],
+    message: str,
+) -> None:
+    """Compare CSV-loaded records with source reconstruction without dtype false alarms."""
+
+    try:
+        pd.testing.assert_frame_equal(
+            recorded[list(columns)].reset_index(drop=True),
+            rebuilt[list(columns)].reset_index(drop=True),
+            check_dtype=False,
+            check_exact=False,
+            atol=1e-12,
+            rtol=0,
+        )
+    except (KeyError, AssertionError) as exc:
+        raise ArtifactIntegrityError(message) from exc
+
+
 def _validate_artifact_hashes(
     directory: Path,
     artifact_hashes: Any,
@@ -1448,12 +1469,12 @@ def validate_spatial_validation_bundle(
         "eligible_class_count",
         "training_pixel_count",
     ]
-    if (
-        not feasibility[check_columns]
-        .reset_index(drop=True)
-        .equals(rebuilt_feasibility[check_columns].reset_index(drop=True))
-    ):
-        raise ArtifactIntegrityError("Buffer feasibility table differs from source reconstruction")
+    _require_reconstructed_table(
+        feasibility,
+        rebuilt_feasibility,
+        check_columns,
+        "Buffer feasibility table differs from source reconstruction",
+    )
     folds = [
         SpatialFold(
             fold_index=fold.fold_index,

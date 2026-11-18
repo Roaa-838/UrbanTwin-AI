@@ -5,11 +5,13 @@ from __future__ import annotations
 from copy import deepcopy
 
 import numpy as np
+import pandas as pd
 import pytest
 from rasterio.transform import from_origin
 
 from urbantwin.common import sha256_file
 from urbantwin.geoai.spatial_validation import (
+    _require_reconstructed_table,
     _validate_artifact_hashes,
     build_spatial_folds,
     fold_classification_metrics,
@@ -227,3 +229,24 @@ def test_artifact_hash_validation_rejects_corruption_and_unsafe_paths(tmp_path):
     unsafe = {**record, "../outside.csv": "0" * 64}
     with pytest.raises(ArtifactIntegrityError, match="safe bundle-local"):
         _validate_artifact_hashes(tmp_path, unsafe, {artifact.name})
+
+
+def test_reconstructed_table_comparison_accepts_csv_numeric_dtype_roundtrip():
+    recorded = pd.DataFrame({"buffer_m": [100, 500], "fold_index": [0, 1]})
+    rebuilt = pd.DataFrame({"buffer_m": [100.0, 500.0], "fold_index": [0, 1]})
+
+    _require_reconstructed_table(
+        recorded,
+        rebuilt,
+        ["buffer_m", "fold_index"],
+        "feasibility differs",
+    )
+
+    recorded.loc[1, "buffer_m"] = 400
+    with pytest.raises(ArtifactIntegrityError, match="feasibility differs"):
+        _require_reconstructed_table(
+            recorded,
+            rebuilt,
+            ["buffer_m", "fold_index"],
+            "feasibility differs",
+        )
