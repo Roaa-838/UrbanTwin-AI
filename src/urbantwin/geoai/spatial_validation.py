@@ -353,7 +353,14 @@ def fold_classification_metrics(
         raise ValueError("min_test_per_class must be positive")
     if not np.isin(truth, classes).all() or not np.isin(predictions, classes).all():
         raise ValueError("Fold metrics require truth and predictions on the fixed core axis")
-    matrix = confusion_matrix(truth, predictions, labels=classes)
+    # Recent scikit-learn releases reject empty inputs before applying the
+    # explicit label axis.  Empty held-out folds are still useful diagnostics,
+    # so construct their all-zero confusion matrix directly.
+    matrix = (
+        np.zeros((len(classes), len(classes)), dtype=int)
+        if len(truth) == 0
+        else confusion_matrix(truth, predictions, labels=classes)
+    )
     if len(truth) == 0:
         aggregate: dict[str, float | int] = {
             "accuracy": float("nan"),

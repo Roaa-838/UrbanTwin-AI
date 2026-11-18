@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from copy import deepcopy
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -131,3 +133,160 @@ def test_analyze_geoai_details_uses_stored_counts_without_row_reconstruction() -
 def test_confusion_validation_rejects_malformed_counts(matrix, error: str) -> None:
     with pytest.raises(ValueError, match=error):
         normalize_confusion(matrix)
+
+
+@pytest.mark.parametrize(
+    ("matrix", "class_ids", "class_names", "eligible", "error_type", "error"),
+    [
+        ([[1]], [], None, None, ValueError, "non-empty"),
+        ([[1, 0], [0, 1]], [10, 10], None, None, ValueError, "unique"),
+        ([[1]], [10], ["Tree", "Built-up"], None, ValueError, "align"),
+        ([[1, 0, 0], [0, 1, 0]], [10, 50], None, None, ValueError, "shape"),
+        ([["one", "zero"], ["zero", "one"]], [10, 50], None, None, TypeError, "numeric"),
+        ([[1, 0], [0, 1]], [10, 50], None, [], ValueError, "non-empty"),
+        ([[1, 0], [0, 1]], [10, 50], None, [10, 80], ValueError, "absent"),
+        ([[0, 0], [0, 2]], [10, 50], None, [10], ValueError, "no held-out"),
+    ],
+)
+def test_confusion_metrics_reject_invalid_axes_and_eligibility(
+    matrix,
+    class_ids,
+    class_names,
+    eligible,
+    error_type,
+    error: str,
+) -> None:
+    with pytest.raises(error_type, match=error):
+        confusion_metrics(
+            matrix,
+            class_ids,
+            class_names=class_names,
+            eligible_class_ids=eligible,
+        )
+
+
+@pytest.mark.parametrize(
+    ("training", "evaluation", "eligible", "error"),
+    [
+        ({10: 1}, {10: 1}, [], "non-empty"),
+        ({10: 1}, {10: 1}, [10, 10], "unique"),
+        ({10: True}, {10: 1}, [10], "non-negative integer"),
+        ({10: 1.5}, {10: 1}, [10], "non-negative integer"),
+        ({10: -1}, {10: 1}, [10], "non-negative integer"),
+        ({10: 0}, {10: 1}, [10], "no training support"),
+        ({10: 1}, {10: 0}, [10], "no evaluation support"),
+    ],
+)
+def test_training_majority_rejects_invalid_support(
+    training, evaluation, eligible, error: str
+) -> None:
+    with pytest.raises(ValueError, match=error):
+        training_majority_baseline(training, evaluation, eligible)
+
+
+def test_paired_feature_ablations_reject_missing_columns_and_duplicates() -> None:
+    complete = pd.DataFrame(
+        [
+            {
+                "method": "rf",
+                "features": feature,
+                "split_seed": 7,
+                "macro_f1": 0.5,
+                "weighted_f1": 0.8,
+                "accuracy": 0.75,
+                "balanced_accuracy": 0.6,
+            }
+            for feature in ("bands_only", "bands_plus_indices")
+        ]
+    )
+
+    with pytest.raises(ValueError, match="missing columns: balanced_accuracy"):
+        paired_feature_ablations(complete.drop(columns="balanced_accuracy"))
+
+    duplicated = pd.concat([complete, complete.iloc[[0]]], ignore_index=True)
+    with pytest.raises(ValueError, match="duplicate"):
+        paired_feature_ablations(duplicated)
+
+
+def _single_experiment(details: dict) -> dict:
+    details["experiments"] = {"rf__bands_only": details["experiments"]["rf__bands_only"]}
+    return details
+
+
+@pytest.mark.parametrize(
+    ("mutate", "error_type", "error"),
+    [
+        (
+            lambda details: details.update(split_diagnostics=None),
+            TypeError,
+            "split_diagnostics and experiments",
+        ),
+        (
+            lambda details: details.update(split_diagnostics=[{}]),
+            TypeError,
+            "diagnostic is malformed",
+        ),
+        (
+            lambda details: details.update(
+                split_diagnostics=[details["split_diagnostics"][0]] * 2
+            ),
+            ValueError,
+            "Duplicate.*seed",
+        ),
+        (
+            lambda details: details.update(experiments={"bad": None}),
+            TypeError,
+            "experiment is malformed",
+        ),
+        (
+            lambda details: _single_experiment(details)["experiments"][
+                "rf__bands_only"
+            ].update(runs={}),
+            TypeError,
+            "runs must be a list",
+        ),
+        (
+            lambda details: _single_experiment(details)["experiments"][
+                "rf__bands_only"
+            ].update(runs=[None]),
+            TypeError,
+            "run is malformed",
+        ),
+        (
+            lambda details: _single_experiment(details)["experiments"][
+                "rf__bands_only"
+            ]["runs"][0].update(seed=99),
+            ValueError,
+            "Missing split diagnostic",
+        ),
+        (
+            lambda details: _single_experiment(details)["experiments"][
+                "rf__bands_only"
+            ]["runs"][0].update(eligible_class_ids=[10]),
+            ValueError,
+            "Eligible classes disagree",
+        ),
+        (
+            lambda details: _single_experiment(details)["experiments"][
+                "rf__bands_only"
+            ]["runs"][0].update(row=None),
+            TypeError,
+            "run row is malformed",
+        ),
+        (
+            lambda details: _single_experiment(details)["experiments"][
+                "rf__bands_only"
+            ]["runs"][0]["row"].update(macro_f1=0.0),
+            ValueError,
+            "Stored macro_f1 disagrees",
+        ),
+    ],
+)
+def test_analyze_geoai_details_rejects_inconsistent_stored_artifacts(
+    mutate, error_type, error: str
+) -> None:
+    details = deepcopy(_details_fixture())
+    mutate(details)
+
+    with pytest.raises(error_type, match=error):
+        analyze_geoai_details(details)
