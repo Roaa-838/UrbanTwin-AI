@@ -1,0 +1,25 @@
+schema_version: urbantwin.geoai-spatial-validation-config/v1
+random_seed: 42
+spatial_validation:
+  # Secondary robustness study. The frozen benchmark in experiments.yaml and
+  # results/geoai remains authoritative and is never overwritten.
+  block_pixels: 20
+  tile_rows: 3
+  tile_cols: 3
+  expected_resolution_m: 10
+  buffer_distances_m: [0, 500]
+  selection_buffer_m: 500
+  buffer_feasibility_candidates_m: [100, 200, 300, 400, 500, 600]
+  buffer_selection_rule: >-
+    Largest prespecified 100 m candidate retaining at least three
+    training-supported classes in every fold; chosen from geometry and
+    training support before any model score was calculated.
+  fold_seeds: [42, 142, 242, 342, 442, 542, 642, 742, 842]
+  min_train_per_class: 20
+  min_test_per_class: 5
+  max_train_per_class: 1200
+  # Intersection of classes supported by all buffered training folds. This is
+  # checked at runtime and never selected from held-out labels.
+  expected_core_class_ids: [10, 50, 80]
+  classifiers: [random_forest, hist_gradient_boosting]
+  ablation: [bands_only, bands_plus_indices]

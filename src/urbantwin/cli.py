@@ -16,6 +16,7 @@ STUDY = ROOT / "configs/study_area.yaml"
 EXPERIMENTS = ROOT / "configs/experiments.yaml"
 OBSERVED_CONFIG = ROOT / "configs/observed_traffic.yaml"
 OBSERVED_EO_CONFIG = ROOT / "configs/observed_eo_2024.yaml"
+GEOAI_SPATIAL_CONFIG = ROOT / "configs/geoai_spatial_validation_v1.yaml"
 
 _TFC_COUNTS_RECORD = "https://data.transportforcairo.com/catalogue/#/document/190"
 _TFC_LOCATIONS_RECORD = "https://data.transportforcairo.com/catalogue/#/dataset/193"
@@ -162,6 +163,15 @@ def _parser() -> argparse.ArgumentParser:
     )
     geo.add_argument("--data-dir", type=Path, default=ROOT / "data/real")
     geo.add_argument("--config", type=Path, default=EXPERIMENTS)
+    geo_spatial = commands.add_parser(
+        "geoai-spatial-validate",
+        help="Run the separate buffered WorldCover-agreement robustness study",
+    )
+    geo_spatial.add_argument("--data-dir", type=Path, default=ROOT / "data/real")
+    geo_spatial.add_argument(
+        "--output-dir", type=Path, default=ROOT / "results/geoai_spatial_validation_v1"
+    )
+    geo_spatial.add_argument("--config", type=Path, default=GEOAI_SPATIAL_CONFIG)
     traffic = commands.add_parser(
         "traffic-run", help="Run SUMO comparisons on an abstract or user-supplied network"
     )
@@ -605,6 +615,14 @@ def _run_geo_train(args: argparse.Namespace) -> None:
     print("Figures:", *[str(path) for path in figures], sep="\n  ")
 
 
+def _run_geoai_spatial_validation(args: argparse.Namespace) -> None:
+    from urbantwin.geoai.spatial_validation import run_spatial_validation
+
+    table = run_spatial_validation(args.data_dir, args.output_dir, args.config)
+    print(table.to_string(index=False))
+    print(f"Validated robustness bundle: {args.output_dir}")
+
+
 def _quick_config(config_path: Path) -> Path:
     configuration = load_yaml(config_path)
     traffic = configuration.get("traffic")
@@ -734,6 +752,7 @@ def main(argv: list[str] | None = None) -> int:
         "observed-report": _run_observed_report,
         "observed-study": _run_observed_study,
         "geo-train": _run_geo_train,
+        "geoai-spatial-validate": _run_geoai_spatial_validation,
         "traffic-run": _run_traffic,
         "report": _run_report,
         "status": lambda _args: _print_status(),
@@ -746,7 +765,7 @@ def main(argv: list[str] | None = None) -> int:
             message += " Completed SUMO checkpoints were preserved; rerun with --resume."
         print(message, file=sys.stderr)
         return 130
-    except (FileNotFoundError, KeyError, RuntimeError, TypeError, ValueError) as exc:
+    except (FileExistsError, FileNotFoundError, KeyError, RuntimeError, TypeError, ValueError) as exc:
         parser.exit(2, f"urbantwin {args.cmd} failed: {exc}\n")
     return 0
 

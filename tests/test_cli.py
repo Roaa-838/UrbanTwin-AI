@@ -94,6 +94,24 @@ def test_observed_parsers_support_current_roads_and_tracking(tmp_path):
     assert study.mlflow is True
 
 
+def test_geoai_spatial_validation_parser_uses_separate_paths(tmp_path):
+    args = cli._parser().parse_args(
+        [
+            "geoai-spatial-validate",
+            "--data-dir",
+            str(tmp_path / "eo"),
+            "--output-dir",
+            str(tmp_path / "spatial"),
+            "--config",
+            str(tmp_path / "protocol.yaml"),
+        ]
+    )
+
+    assert args.data_dir == tmp_path / "eo"
+    assert args.output_dir == tmp_path / "spatial"
+    assert args.config == tmp_path / "protocol.yaml"
+
+
 def test_cli_reports_interruption_and_returns_130(monkeypatch, capsys):
     def interrupted(_args):
         raise KeyboardInterrupt

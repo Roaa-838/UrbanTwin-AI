@@ -125,6 +125,7 @@ Environment setup, data acquisition, experiment commands, recovery procedures, a
 
 - [Data sources, licensing, and attribution](docs/DATA_SOURCES.md)
 - [Reproducibility guide](docs/REPRODUCIBILITY.md)
+- [GeoAI error analysis and buffered spatial robustness](docs/geoai_spatial_validation.md)
 - [Measured traffic case study](docs/observed_traffic_case_study.md)
 - [Real-data feasibility audit](docs/real_data_feasibility.md)
 - [Results integrity and artifact policy](results/README.md)
