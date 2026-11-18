@@ -157,6 +157,16 @@ than editing the v1 configuration or historical output. The protocol, minority-c
 and interpretation limits are documented in
 [geoai_spatial_validation.md](geoai_spatial_validation.md).
 
+After the local bundle validates, publication figures can be regenerated without refitting:
+
+```powershell
+.\.venv\Scripts\urbantwin.exe geoai-spatial-figures `
+  --output-dir "docs\assets\geoai_spatial_validation_reproduction"
+```
+
+Both commands refuse to overwrite an existing destination. Choose a new output path for a
+reproduction; do not delete or replace the retained validated bundle merely to redraw figures.
+
 ## 6. Current OpenStreetMap road retrieval
 
 The general road command downloads the current driving graph for the configured AOI and reports projected network statistics:

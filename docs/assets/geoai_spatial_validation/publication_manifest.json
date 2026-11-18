@@ -1,0 +1,37 @@
+{
+  "schema_version": "urbantwin.geoai-spatial-validation-figures/v1",
+  "source_bundle_provenance_sha256": "f61ed82ed29cc939e8b17efc670eec521b2cf80929db51595edd00de47b5e1d0",
+  "source_bundle_artifact_hashes": {
+    "aggregate_metrics.csv": "232b176b9efa4c0dc24d198e4e0d360dbe5dd14508fcfb8a8401d29687cae2fd",
+    "baseline_majority_baselines.csv": "e11bc2cdad40c5b17c68cb725a852314a7e3a4cd5a2db4fe855d2bd1bb0a0d30",
+    "baseline_paired_ablations.csv": "2ee9cb9ba11e21477208cbd3e29e51d4b10d5667f6e5587ed24b27050d198672",
+    "baseline_per_class.csv": "02cc6688f2c23ad3c64a707ba9fc799db4162b7ddd75fdf2ed43e45e5cb73629",
+    "baseline_per_class_f1_support.png": "fec7effc58d323eb566453d53a33383c11873ff1e884ee0c60f4e51da3262822",
+    "baseline_spatial_diagnostics.csv": "9b39c71260762b129f79740882e6a6b858c0e29cbf07c1b63373dc85570b1e59",
+    "baseline_split_metrics.csv": "bcecb5034ce6d566f6f2bd41a39758c13b32936525c317853a3faf94517f7eff",
+    "buffer_feasibility.csv": "15907291ca31b7248fb62341a0d5480d39f63d86017dba65eb2d25b584ae1e14",
+    "class_eligibility.csv": "1fc92e43943f78285196ae1502dc675ca7722676fe98db3dfc849f22287738c1",
+    "configuration_snapshot.json": "af3d8262732c06c3a94013c8add16a3037f228ec3f8370ed78b8a2a2eab7245d",
+    "fold_manifest.csv": "e35c1c8bc01b005f5c3290d1b951bd8634046c7f1bd939e2aefd0b66a07be122",
+    "fold_metrics.csv": "aceae716235d2abe10cbe693d6e384113cbc9176c77050d2e066f204dc251742",
+    "majority_baselines.csv": "ad405f3fc7ff4c8103ec593e8ad72158643a883b4f46c99fe2d64ca6d01d338f",
+    "per_class_metrics.csv": "818fd6312fdf951cf9b26ebe777f5d4fe2513ff0f2e87dbf4d0979770db1e6d4",
+    "source_manifest.json": "56f5411bbaf3cfe6f2a7843f73ff8c6f67ec95d051803f13036c5eccf68b952f",
+    "spatial_confusion_random_forest_indices.png": "38f8773cb9e8eb9ad53a9d0d0eb63eb5db46f094f8861469b9ece5e7205410d0",
+    "spatial_details.json": "58388352eca428dbecba91a0815ca73c119b5499a297339e58cd9466b2cfc741",
+    "spatial_fold_design.png": "f00d19c8189055dd20379ee08b0f1ed47d5260af75e0240a8e0f616d27dc6d7c",
+    "spatial_robustness_comparison.png": "82506a920f1c5a322ebde6d231a6568c78ed42ec048a7b1ea6dfaf408b833222"
+  },
+  "source_role": "WorldCover 2021 pseudo-label agreement; not field accuracy",
+  "attribution": {
+    "sentinel_2": "Contains modified Copernicus Sentinel data 2021.",
+    "worldcover_2021": "© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by the ESA WorldCover consortium."
+  },
+  "worldcover_license": "CC BY 4.0",
+  "figure_hashes": {
+    "spatial_fold_design.png": "f00d19c8189055dd20379ee08b0f1ed47d5260af75e0240a8e0f616d27dc6d7c",
+    "baseline_per_class_f1_support.png": "bfc51fdec93105d564d648716f9ddc4cf4079015fd5f5842e5e7c5258a99389f",
+    "spatial_robustness_comparison.png": "82506a920f1c5a322ebde6d231a6568c78ed42ec048a7b1ea6dfaf408b833222",
+    "spatial_confusion_random_forest_indices.png": "0a1af2b2dea8982682707fa33185fce27e19557ed345abb85ffacb7a91103730"
+  }
+}

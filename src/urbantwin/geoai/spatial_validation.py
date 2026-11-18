@@ -946,9 +946,7 @@ def _write_figures(
         ylabel="Mean held-out support",
         xlabel="WorldCover pseudo-label class",
         xticks=positions,
-        xticklabels=[
-            f"{row.class_id}\n{row.class_name}" for row in class_order.itertuples(index=False)
-        ],
+        xticklabels=["10\nTree", "20\nShrub", "30\nGrass", "50\nBuilt", "60\nBare", "80\nWater"],
     )
     axes[1].set_yscale("log")
     path = directory / "baseline_per_class_f1_support.png"
@@ -987,7 +985,7 @@ def _write_figures(
     plt.close(figure)
     paths.append(path)
 
-    figure, axes = plt.subplots(1, 2, figsize=(10, 4.6), constrained_layout=True)
+    figure, axes = plt.subplots(1, 2, figsize=(11, 4.8), constrained_layout=True)
     for axis, condition in zip(
         axes, ["unbuffered_tiled_control", "strict_500m_buffer"], strict=True
     ):
@@ -1008,18 +1006,92 @@ def _write_figures(
             xticks=range(len(core_classes)),
             yticks=range(len(core_classes)),
             xticklabels=[
-                f"{class_id}\n{WORLDCOVER_CLASSES[class_id]}" for class_id in core_classes
+                f"{class_id} {WORLDCOVER_CLASSES[class_id].replace('Permanent water bodies', 'Water')}"
+                for class_id in core_classes
             ],
             yticklabels=[
-                f"{class_id}\n{WORLDCOVER_CLASSES[class_id]}" for class_id in core_classes
+                f"{class_id} {WORLDCOVER_CLASSES[class_id].replace('Permanent water bodies', 'Water')}"
+                for class_id in core_classes
             ],
         )
+        axis.tick_params(axis="x", labelrotation=20, labelsize=8)
+        axis.tick_params(axis="y", labelsize=8)
     figure.colorbar(rendered, ax=axes, label="Row-normalized proportion", shrink=0.8)
     path = directory / "spatial_confusion_random_forest_indices.png"
     figure.savefig(path, dpi=180)
     plt.close(figure)
     paths.append(path)
     return paths
+
+
+def render_spatial_validation_figures(
+    bundle_dir: str | Path,
+    output_dir: str | Path,
+    config_file: str | Path,
+    data_dir: str | Path,
+    baseline_root: str | Path = ROOT,
+) -> list[Path]:
+    """Render publication figures from a validated bundle without refitting models."""
+
+    bundle = Path(bundle_dir)
+    destination = Path(output_dir)
+    config_path = Path(config_file)
+    data_path = Path(data_dir)
+    root = Path(baseline_root)
+    if destination.exists():
+        raise FileExistsError(
+            f"Spatial-validation figure output already exists and will not be overwritten: "
+            f"{destination}"
+        )
+    validated = validate_spatial_validation_bundle(bundle, config_path, data_path, root)
+    cfg = load_spatial_validation_config(config_path)
+    bands, labels, _, source, _, _ = _validate_source_stack(
+        data_path, float(cfg["expected_resolution_m"])
+    )
+    valid = np.isin(labels, sorted(WORLDCOVER_CLASSES)) & np.all(
+        np.isfinite(bands), axis=0
+    )
+    _, folds = _feasibility_table(labels, valid, source["transform"], cfg)
+    baseline = validate_geoai_artifacts(root)
+    if baseline is None:
+        raise FileNotFoundError("The frozen validated GeoAI result bundle is required")
+    baseline_analysis = analyze_geoai_details(baseline["details"])
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.parent / f".{destination.name}.tmp-{uuid.uuid4().hex}"
+    temporary.mkdir()
+    try:
+        figure_paths = _write_figures(
+            temporary,
+            folds,
+            validated["aggregate_metrics"],
+            validated["details"],
+            validated["details"]["core_class_ids"],
+            baseline_analysis,
+        )
+        publication_manifest = {
+            "schema_version": "urbantwin.geoai-spatial-validation-figures/v1",
+            "source_bundle_provenance_sha256": sha256_file(bundle / "provenance.json"),
+            "source_bundle_artifact_hashes": validated["artifact_hashes"],
+            "source_role": "WorldCover 2021 pseudo-label agreement; not field accuracy",
+            "attribution": {
+                "sentinel_2": "Contains modified Copernicus Sentinel data 2021.",
+                "worldcover_2021": (
+                    "© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel "
+                    "data (2021) processed by the ESA WorldCover consortium."
+                ),
+            },
+            "worldcover_license": "CC BY 4.0",
+            "figure_hashes": {path.name: sha256_file(path) for path in figure_paths},
+        }
+        _write_json(temporary / "publication_manifest.json", publication_manifest)
+        names = [path.name for path in figure_paths]
+        temporary.rename(destination)
+    except BaseException:
+        if temporary.exists():
+            shutil.rmtree(temporary)
+        raise
+    return [destination / name for name in names]
 
 
 def run_spatial_validation(
@@ -1578,6 +1650,7 @@ __all__ = [
     "build_spatial_folds",
     "fold_classification_metrics",
     "load_spatial_validation_config",
+    "render_spatial_validation_figures",
     "run_spatial_validation",
     "select_core_classes_from_training",
     "validate_spatial_validation_bundle",

@@ -111,6 +111,18 @@ def test_geoai_spatial_validation_parser_uses_separate_paths(tmp_path):
     assert args.output_dir == tmp_path / "spatial"
     assert args.config == tmp_path / "protocol.yaml"
 
+    figures = cli._parser().parse_args(
+        [
+            "geoai-spatial-figures",
+            "--bundle-dir",
+            str(tmp_path / "spatial"),
+            "--output-dir",
+            str(tmp_path / "figures"),
+        ]
+    )
+    assert figures.bundle_dir == tmp_path / "spatial"
+    assert figures.output_dir == tmp_path / "figures"
+
 
 def test_cli_reports_interruption_and_returns_130(monkeypatch, capsys):
     def interrupted(_args):

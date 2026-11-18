@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from copy import deepcopy
 
 import numpy as np
@@ -9,13 +10,14 @@ import pandas as pd
 import pytest
 from rasterio.transform import from_origin
 
-from urbantwin.common import sha256_file
+from urbantwin.common import ROOT, sha256_file
 from urbantwin.geoai.spatial_validation import (
     _require_reconstructed_table,
     _validate_artifact_hashes,
     build_spatial_folds,
     fold_classification_metrics,
     load_spatial_validation_config,
+    render_spatial_validation_figures,
     run_spatial_validation,
     select_core_classes_from_training,
 )
@@ -213,6 +215,17 @@ def test_runner_refuses_to_overwrite_existing_bundle_before_reading_inputs(tmp_p
             tmp_path / "missing-baseline",
         )
 
+    figures = tmp_path / "existing-figures"
+    figures.mkdir()
+    with pytest.raises(FileExistsError, match="will not be overwritten"):
+        render_spatial_validation_figures(
+            tmp_path / "missing-bundle",
+            figures,
+            tmp_path / "missing-config.yaml",
+            tmp_path / "missing-eo",
+            tmp_path / "missing-baseline",
+        )
+
 
 def test_artifact_hash_validation_rejects_corruption_and_unsafe_paths(tmp_path):
     artifact = tmp_path / "metrics.csv"
@@ -250,3 +263,22 @@ def test_reconstructed_table_comparison_accepts_csv_numeric_dtype_roundtrip():
             ["buffer_m", "fold_index"],
             "feasibility differs",
         )
+
+
+def test_tracked_publication_figures_match_safe_source_manifest():
+    directory = ROOT / "docs/assets/geoai_spatial_validation"
+    manifest = json.loads((directory / "publication_manifest.json").read_text(encoding="utf-8"))
+
+    assert manifest["schema_version"] == "urbantwin.geoai-spatial-validation-figures/v1"
+    assert manifest["source_role"].endswith("not field accuracy")
+    assert manifest["worldcover_license"] == "CC BY 4.0"
+    assert "Copernicus Sentinel data 2021" in manifest["attribution"]["sentinel_2"]
+    assert set(manifest["figure_hashes"]) == {
+        "baseline_per_class_f1_support.png",
+        "spatial_confusion_random_forest_indices.png",
+        "spatial_fold_design.png",
+        "spatial_robustness_comparison.png",
+    }
+    for name, expected in manifest["figure_hashes"].items():
+        assert sha256_file(directory / name) == expected
+    assert "http" not in json.dumps(manifest).lower()

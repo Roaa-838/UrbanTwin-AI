@@ -34,6 +34,12 @@ Mean ± standard deviation across three repeated grouped spatial splits:
 
 These values quantify agreement with WorldCover 2021 pseudo-labels. Small differences between feature sets are descriptive and do not establish a causal or generalizable benefit from adding spectral indices.
 
+A separate prespecified robustness study holds the same three supported classes and geographic
+tiles fixed while increasing minimum train/test pixel-centre separation from 10.0 m to 500.10 m.
+Macro-F1 rises by 0.0108–0.0163, but balanced accuracy falls by 0.0227–0.0314 because tree-cover
+recall decreases. This is local within-AOI robustness, not independent regional or field accuracy;
+see the [full error analysis](docs/geoai_spatial_validation.md).
+
 ### Controlled simulation study
 
 Mean ± standard deviation of the paired completed-trip time-loss difference from fixed-time control across three held-out seeds; negative values are lower within this abstract simulation only.

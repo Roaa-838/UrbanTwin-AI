@@ -172,6 +172,16 @@ def _parser() -> argparse.ArgumentParser:
         "--output-dir", type=Path, default=ROOT / "results/geoai_spatial_validation_v1"
     )
     geo_spatial.add_argument("--config", type=Path, default=GEOAI_SPATIAL_CONFIG)
+    geo_figures = commands.add_parser(
+        "geoai-spatial-figures",
+        help="Render publishable figures from a validated spatial-robustness bundle",
+    )
+    geo_figures.add_argument("--data-dir", type=Path, default=ROOT / "data/real")
+    geo_figures.add_argument(
+        "--bundle-dir", type=Path, default=ROOT / "results/geoai_spatial_validation_v1"
+    )
+    geo_figures.add_argument("--output-dir", type=Path, required=True)
+    geo_figures.add_argument("--config", type=Path, default=GEOAI_SPATIAL_CONFIG)
     traffic = commands.add_parser(
         "traffic-run", help="Run SUMO comparisons on an abstract or user-supplied network"
     )
@@ -623,6 +633,18 @@ def _run_geoai_spatial_validation(args: argparse.Namespace) -> None:
     print(f"Validated robustness bundle: {args.output_dir}")
 
 
+def _run_geoai_spatial_figures(args: argparse.Namespace) -> None:
+    from urbantwin.geoai.spatial_validation import render_spatial_validation_figures
+
+    figures = render_spatial_validation_figures(
+        args.bundle_dir,
+        args.output_dir,
+        args.config,
+        args.data_dir,
+    )
+    print("Validated figures:", *[str(path) for path in figures], sep="\n  ")
+
+
 def _quick_config(config_path: Path) -> Path:
     configuration = load_yaml(config_path)
     traffic = configuration.get("traffic")
@@ -753,6 +775,7 @@ def main(argv: list[str] | None = None) -> int:
         "observed-study": _run_observed_study,
         "geo-train": _run_geo_train,
         "geoai-spatial-validate": _run_geoai_spatial_validation,
+        "geoai-spatial-figures": _run_geoai_spatial_figures,
         "traffic-run": _run_traffic,
         "report": _run_report,
         "status": lambda _args: _print_status(),
