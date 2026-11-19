@@ -16,6 +16,7 @@ STUDY = ROOT / "configs/study_area.yaml"
 EXPERIMENTS = ROOT / "configs/experiments.yaml"
 OBSERVED_CONFIG = ROOT / "configs/observed_traffic.yaml"
 OBSERVED_EO_CONFIG = ROOT / "configs/observed_eo_2024.yaml"
+OBSERVED_ERROR_CONFIG = ROOT / "configs/observed_error_analysis_v1.yaml"
 GEOAI_SPATIAL_CONFIG = ROOT / "configs/geoai_spatial_validation_v1.yaml"
 
 _TFC_COUNTS_RECORD = "https://data.transportforcairo.com/catalogue/#/document/190"
@@ -157,6 +158,30 @@ def _parser() -> argparse.ArgumentParser:
             "Build a methods-only PDF that omits TfC-derived rows, maps, tables, "
             "and exact model results"
         ),
+    )
+    observed_errors = commands.add_parser(
+        "observed-error-analysis",
+        help="Analyze validated holdout errors into an explicitly private local bundle",
+    )
+    observed_errors.add_argument(
+        "--bundle-dir", type=Path, default=ROOT / "results/observed_traffic"
+    )
+    observed_errors.add_argument(
+        "--output-dir",
+        type=Path,
+        default=ROOT / ".urbantwin/private/observed_error_analysis_v1",
+    )
+    observed_errors.add_argument("--config", type=Path, default=OBSERVED_ERROR_CONFIG)
+    observed_errors.add_argument(
+        "--validation-root",
+        type=Path,
+        default=ROOT,
+        help="Root containing the exact configuration and bound inputs for strict validation",
+    )
+    observed_errors.add_argument(
+        "--source-dir",
+        type=Path,
+        default=ROOT / "data/observed/tfc/normalized_v1",
     )
     geo = commands.add_parser(
         "geo-train", help="Run repeated grouped WorldCover agreement benchmarks"
@@ -614,6 +639,24 @@ def _run_observed_report(args: argparse.Namespace) -> None:
     print(output.with_suffix(".provenance.json"))
 
 
+def _run_observed_error_analysis(args: argparse.Namespace) -> None:
+    from urbantwin.observed.error_analysis import run_observed_error_analysis
+
+    result = run_observed_error_analysis(
+        ROOT,
+        args.bundle_dir,
+        args.output_dir,
+        args.config,
+        validation_root=args.validation_root,
+        source_dir=args.source_dir,
+    )
+    print(f"Private validated analysis: {result['output_dir']}")
+    print(
+        "Derived measured-traffic tables and figures remain private pending explicit "
+        "redistribution terms."
+    )
+
+
 def _run_geo_train(args: argparse.Namespace) -> None:
     from urbantwin.geoai.evaluate import make_figures
     from urbantwin.geoai.train import run_classification
@@ -772,6 +815,7 @@ def main(argv: list[str] | None = None) -> int:
         "observed-eo-fetch": _run_observed_eo_fetch,
         "observed-roads": _run_observed_roads,
         "observed-report": _run_observed_report,
+        "observed-error-analysis": _run_observed_error_analysis,
         "observed-study": _run_observed_study,
         "geo-train": _run_geo_train,
         "geoai-spatial-validate": _run_geoai_spatial_validation,
