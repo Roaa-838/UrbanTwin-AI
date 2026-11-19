@@ -133,6 +133,7 @@ Environment setup, data acquisition, experiment commands, recovery procedures, a
 - [Reproducibility guide](docs/REPRODUCIBILITY.md)
 - [GeoAI error analysis and buffered spatial robustness](docs/geoai_spatial_validation.md)
 - [Measured traffic case study](docs/observed_traffic_case_study.md)
+- [Observed-traffic error-analysis methodology](docs/observed_error_analysis_methodology.md)
 - [Real-data feasibility audit](docs/real_data_feasibility.md)
 - [Results integrity and artifact policy](results/README.md)
 - Notebooks: [geospatial analysis](notebooks/01_geospatial_analysis.ipynb), [experiment results](notebooks/02_experiment_results.ipynb), [measured observations](notebooks/03_observed_traffic_measurements.ipynb), and [model benchmark](notebooks/04_observed_traffic_benchmark.ipynb)

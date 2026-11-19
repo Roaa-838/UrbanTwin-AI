@@ -1,0 +1,49 @@
+schema_version: urbantwin.observed-error-analysis-config/v1
+
+# Secondary exploratory analysis of the already frozen observed benchmark.
+# This protocol does not refit models or use holdout scores for model selection.
+analysis:
+  bootstrap_seed: 42017
+  bootstrap_replicates: 10000
+  confidence_level: 0.95
+  volume_quantiles: 4
+  expected_holdout_sites: 10
+  private_outputs_only: true
+
+  # This is the specification selected previously by training-only grouped CV.
+  primary_specification:
+    model: random_forest
+    feature_set: combined
+    information_budget: measurement_free_estimation
+
+  # Deltas use left minus right; negative MAE/RMSE deltas favor the left side.
+  comparisons:
+    - id: rf_combined_vs_histgb_combined
+      left:
+        model: random_forest
+        feature_set: combined
+        information_budget: measurement_free_estimation
+      right:
+        model: histogram_gradient_boosting
+        feature_set: combined
+        information_budget: measurement_free_estimation
+
+    - id: rf_combined_vs_rf_spatial
+      left:
+        model: random_forest
+        feature_set: combined
+        information_budget: measurement_free_estimation
+      right:
+        model: random_forest
+        feature_set: spatial_only
+        information_budget: measurement_free_estimation
+
+    - id: rf_combined_vs_historical_mean
+      left:
+        model: random_forest
+        feature_set: combined
+        information_budget: measurement_free_estimation
+      right:
+        model: historical_mean
+        feature_set: time_only
+        information_budget: measurement_free_estimation

@@ -96,6 +96,96 @@ def test_observed_parsers_support_current_roads_and_tracking(tmp_path):
     assert study.mlflow is True
 
 
+def test_observed_error_analysis_parser_uses_explicit_private_inputs(tmp_path):
+    args = cli._parser().parse_args(
+        [
+            "observed-error-analysis",
+            "--bundle-dir",
+            str(tmp_path / "bundle"),
+            "--output-dir",
+            str(tmp_path / ".urbantwin" / "private" / "analysis"),
+            "--config",
+            str(tmp_path / "analysis.yaml"),
+            "--validation-root",
+            str(tmp_path / "legacy-validation"),
+            "--source-dir",
+            str(tmp_path / "normalized-source"),
+        ]
+    )
+
+    assert args.bundle_dir == tmp_path / "bundle"
+    assert args.output_dir == tmp_path / ".urbantwin" / "private" / "analysis"
+    assert args.config == tmp_path / "analysis.yaml"
+    assert args.validation_root == tmp_path / "legacy-validation"
+    assert args.source_dir == tmp_path / "normalized-source"
+
+
+def test_observed_error_analysis_cli_dispatches_without_printing_metrics(
+    tmp_path, monkeypatch, capsys
+):
+    requested = {}
+
+    def run_observed_error_analysis(
+        project_root,
+        bundle_dir,
+        output_dir,
+        config,
+        *,
+        validation_root,
+        source_dir,
+    ):
+        requested.update(
+            project_root=project_root,
+            bundle_dir=bundle_dir,
+            output_dir=output_dir,
+            config=config,
+            validation_root=validation_root,
+            source_dir=source_dir,
+        )
+        return {"output_dir": output_dir}
+
+    monkeypatch.setattr(
+        "urbantwin.observed.error_analysis.run_observed_error_analysis",
+        run_observed_error_analysis,
+    )
+    output_dir = tmp_path / ".urbantwin" / "private" / "analysis"
+    bundle_dir = tmp_path / "bundle"
+    config = tmp_path / "analysis.yaml"
+    validation_root = tmp_path / "legacy-validation"
+    source_dir = tmp_path / "normalized-source"
+
+    assert (
+        cli.main(
+            [
+                "observed-error-analysis",
+                "--bundle-dir",
+                str(bundle_dir),
+                "--output-dir",
+                str(output_dir),
+                "--config",
+                str(config),
+                "--validation-root",
+                str(validation_root),
+                "--source-dir",
+                str(source_dir),
+            ]
+        )
+        == 0
+    )
+    assert requested == {
+        "project_root": cli.ROOT,
+        "bundle_dir": bundle_dir,
+        "output_dir": output_dir,
+        "config": config,
+        "validation_root": validation_root,
+        "source_dir": source_dir,
+    }
+    output = capsys.readouterr().out
+    assert f"Private validated analysis: {output_dir}" in output
+    assert "remain private" in output
+    assert "MAE" not in output
+
+
 def test_geoai_spatial_validation_parser_uses_separate_paths(tmp_path):
     args = cli._parser().parse_args(
         [
