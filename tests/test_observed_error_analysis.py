@@ -352,6 +352,48 @@ def _fake_figures(directory: Path, *_args) -> list[Path]:
     return paths
 
 
+def test_figure_renderer_creates_complete_private_diagnostics(tmp_path: Path) -> None:
+    predictions = _predictions()
+    site_errors = analysis._anonymize_sites(analysis.site_error_summary(predictions))
+    volume_errors = analysis.volume_quantile_summary(predictions, quantiles=4)
+    paired_rows = analysis.paired_prediction_rows(
+        predictions, RF_COMBINED, HGB_COMBINED
+    )
+    point, _ = analysis.paired_site_bootstrap(
+        paired_rows, replicates=20, seed=7, confidence_level=0.95
+    )
+    paired = pd.DataFrame(
+        [
+            {
+                "comparison_id": "rf_combined_vs_histgb_combined",
+                "left_label": "random_forest / combined",
+                "right_label": "histogram_gradient_boosting / combined",
+                **point,
+            }
+        ]
+    )
+    cv_holdout = analysis.cv_holdout_comparison(_cv_metrics(), _holdout_metrics())
+
+    paths = analysis._write_figures(
+        tmp_path,
+        site_errors,
+        volume_errors,
+        paired,
+        cv_holdout,
+        RF_COMBINED,
+    )
+
+    assert {path.name for path in paths} == {
+        "site_mae_private.png",
+        "volume_error_private.png",
+        "paired_uncertainty_private.png",
+        "cv_holdout_private.png",
+    }
+    for path in paths:
+        assert path.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+        assert path.stat().st_size > 1_000
+
+
 def test_private_runner_is_atomic_hashed_and_identifier_free(tmp_path: Path, monkeypatch) -> None:
     config = _write_config(tmp_path / "analysis.yaml")
     bundle = tmp_path / "upstream"

@@ -665,7 +665,7 @@ def _write_figures(
     figure, axis = plt.subplots(figsize=(10.5, 5.4), constrained_layout=True)
     for label, group in plotted.groupby("specification", sort=True):
         ordered = group.sort_values("anonymous_site")
-        axis.plot(ordered["anonymous_site"], ordered["mae"], marker="o", label=label)
+        axis.scatter(ordered["anonymous_site"], ordered["mae"], s=45, label=label)
     axis.set(
         title="Measurement-free holdout MAE by anonymous inferred site",
         xlabel="Anonymous inferred site (ten-site holdout)",
@@ -714,9 +714,12 @@ def _write_figures(
         title="Paired whole-site bootstrap: MAE difference",
         ylabel="Left minus right MAE (negative favors left)",
         xticks=positions,
-        xticklabels=paired["comparison_id"],
+        xticklabels=(
+            paired["comparison_id"]
+            .str.replace("_vs_", "\nvs\n", regex=False)
+            .str.replace("_", " ", regex=False)
+        ),
     )
-    axis.tick_params(axis="x", labelrotation=20)
     axis.grid(axis="y", alpha=0.2)
     path = figures / "paired_uncertainty_private.png"
     figure.savefig(path, dpi=170)
@@ -724,7 +727,11 @@ def _write_figures(
     paths.append(path)
 
     ordered = cv_holdout.sort_values("cv_mean_mae", kind="mergesort")
-    labels = ordered["model"] + " / " + ordered["feature_set"]
+    labels = (
+        ordered["model"].str.replace("_", " ", regex=False)
+        + "\n"
+        + ordered["feature_set"].str.replace("_", " ", regex=False)
+    )
     positions = np.arange(len(ordered))
     width = 0.38
     figure, axis = plt.subplots(figsize=(11, 5.2), constrained_layout=True)
@@ -736,7 +743,7 @@ def _write_figures(
         xticks=positions,
         xticklabels=labels,
     )
-    axis.tick_params(axis="x", labelrotation=30)
+    axis.tick_params(axis="x", labelrotation=20)
     axis.legend(frameon=False)
     axis.grid(axis="y", alpha=0.2)
     path = figures / "cv_holdout_private.png"
